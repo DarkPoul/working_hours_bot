@@ -1,0 +1,9 @@
+version: "3.9"
+services:
+  bot:
+    build: .
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      BOT_USERNAME: ${BOT_USERNAME}
+    volumes:
+      - ./data:/app/data
