@@ -1,34 +1,37 @@
 package esvar.ua.workinghoursbot.domain;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import lombok.Getter;
-import lombok.Setter;
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
+
+import java.util.UUID;
 
 @Entity
 @Table(name = "locations")
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Location {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id")
-    private Long id;
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "id", nullable = false, length = 36)
+    private UUID id;
 
-    @Column(name = "code", nullable = false, unique = true, length = 64)
+    @Column(nullable = false, unique = true)
     private String code;
 
-    @Column(name = "name", nullable = false, length = 128)
+    @Column(nullable = false)
     private String name;
 
+    // Додаємо відсутнє поле, через яке виникає помилка
     @Column(name = "is_active", nullable = false)
-    private boolean active;
+    private boolean active = true;
 
     @Column(name = "sort_order")
     private Integer sortOrder;
+
 }

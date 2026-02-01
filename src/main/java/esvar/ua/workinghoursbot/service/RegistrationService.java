@@ -53,7 +53,7 @@ public class RegistrationService {
         registrationSessionService.save(session);
 
         log.info("Start registration for telegramUserId={}", telegramUserId);
-        SendMessage message = buildMessage(chatId, "Вітаю! Введіть, будь ласка, ваше прізвище (2-64 символи).");
+        SendMessage message = buildMessage(chatId, "Вітаю! Введіть, будь ласка, ваше прізвище та ім'я.");
         message.setReplyMarkup(KeyboardFactory.enterNameKeyboard());
         return BotResponse.of(message);
     }
@@ -283,13 +283,44 @@ public class RegistrationService {
             return BotResponse.of(response);
         }
         if (account.getStatus() == RegistrationStatus.APPROVED) {
-            SendMessage response = buildMessage(chatId,
-                    "Ви вже зареєстровані. Роль: %s".formatted(formatRole(account.getRole())));
+            String text = """
+                            ━━━━━━━━━━━━━━━━━━
+                            👋 Вітаємо, %s
+                            ━━━━━━━━━━━━━━━━━━
+                            
+                            👤 **Ваша роль**
+                            %s
+                            
+                            📌 **Важливо**
+                            Тут зʼявлятимуться важливі повідомлення
+                            та службові сповіщення.
+                            """.formatted(
+                    account.getLastName(),
+                    formatRole(account.getRole())
+            );
+
+            SendMessage response = buildMessage(chatId, text);
             response.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
             return BotResponse.of(response);
         }
         if (account.getStatus() == RegistrationStatus.REJECTED) {
-            SendMessage response = buildMessage(chatId, "На жаль, вашу заявку відхилено. Можете почати спочатку.");
+            String text = """
+                            ━━━━━━━━━━━━━━━━━━
+                            👋 Вітаємо, %s
+                            ━━━━━━━━━━━━━━━━━━
+                            
+                            👤 **Ваша роль**
+                            %s
+                            
+                            📌 **Важливо**
+                            Тут зʼявлятимуться важливі повідомлення
+                            та службові сповіщення.
+                            """.formatted(
+                    account.getLastName(),
+                    formatRole(account.getRole())
+            );
+
+            SendMessage response = buildMessage(chatId, text);
             response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
             return BotResponse.of(response);
         }
