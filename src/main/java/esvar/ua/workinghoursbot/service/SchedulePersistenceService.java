@@ -78,4 +78,31 @@ public class SchedulePersistenceService {
         log.debug("Inserted schedule days. userId={}, locationId={}, month={}, insertedCount={}",
                 telegramUserId, locationId, month, toSave.size());
     }
+
+    @Transactional
+    public void applyReplacement(Long requesterTelegramUserId,
+                                 Long replacementTelegramUserId,
+                                 UUID locationId,
+                                 LocalDate date) {
+        if (requesterTelegramUserId == null || replacementTelegramUserId == null || locationId == null || date == null) {
+            return;
+        }
+
+        scheduleDayRepository.deleteByTelegramUserIdAndLocationIdAndDate(requesterTelegramUserId, locationId, date);
+
+        boolean replacementAlreadyWorking = scheduleDayRepository.existsByTelegramUserIdAndLocationIdAndDateAndStatus(
+                replacementTelegramUserId,
+                locationId,
+                date,
+                ScheduleStatus.WORK
+        );
+        if (!replacementAlreadyWorking) {
+            ScheduleDay day = new ScheduleDay();
+            day.setTelegramUserId(replacementTelegramUserId);
+            day.setLocationId(locationId);
+            day.setDate(date);
+            day.setStatus(ScheduleStatus.WORK);
+            scheduleDayRepository.save(day);
+        }
+    }
 }

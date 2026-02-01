@@ -5,6 +5,7 @@ import esvar.ua.workinghoursbot.domain.Role;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.service.RegistrationService;
 import esvar.ua.workinghoursbot.service.ScheduleInteractionHandler;
+import esvar.ua.workinghoursbot.service.SubstitutionInteractionHandler;
 import esvar.ua.workinghoursbot.service.TmMenuService;
 import esvar.ua.workinghoursbot.service.UserAccountService;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class UpdateRouter {
     private final UserAccountService userAccountService;
     private final TmMenuService tmMenuService;
     private final ScheduleInteractionHandler scheduleInteractionHandler;
+    private final SubstitutionInteractionHandler substitutionInteractionHandler;
 
     public BotResponse route(Update update) {
         if (update == null) {
@@ -72,6 +74,11 @@ public class UpdateRouter {
             return BotResponse.empty();
         }
 
+        BotResponse substitutionResponse = substitutionInteractionHandler.handleCallback(callbackQuery);
+        if (!substitutionResponse.actions().isEmpty()) {
+            return substitutionResponse;
+        }
+
         BotResponse response = scheduleInteractionHandler.handleCallback(callbackQuery);
         if (!response.actions().isEmpty()) {
             return response;
@@ -98,6 +105,10 @@ public class UpdateRouter {
             return tmMenuService.handleText(telegramUserId, chatId, text);
         }
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() != Role.TM) {
+            BotResponse substitutionResponse = substitutionInteractionHandler.handleMessage(telegramUserId, chatId, text);
+            if (!substitutionResponse.actions().isEmpty()) {
+                return substitutionResponse;
+            }
             BotResponse response = scheduleInteractionHandler.handleMessage(telegramUserId, chatId, text);
             if (!response.actions().isEmpty()) {
                 return response;

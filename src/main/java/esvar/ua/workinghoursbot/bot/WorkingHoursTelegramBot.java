@@ -2,6 +2,7 @@ package esvar.ua.workinghoursbot.bot;
 
 import esvar.ua.workinghoursbot.config.BotProperties;
 import esvar.ua.workinghoursbot.service.ScheduleSessionStore;
+import esvar.ua.workinghoursbot.service.SubstitutionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
     private final BotProperties botProperties;
     private final UpdateRouter updateRouter;
     private final ScheduleSessionStore scheduleSessionStore;
+    private final SubstitutionService substitutionService;
 
     @Override
     public String getBotUsername() {
@@ -50,6 +52,13 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
             Message sent = execute(sendMessage);
             if (sent != null) {
                 scheduleSessionStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
+                if (action instanceof SubstitutionCandidateOfferMessage offerMessage) {
+                    substitutionService.registerCandidateNotification(
+                            offerMessage.getRequestId(),
+                            sent.getChatId(),
+                            sent.getMessageId()
+                    );
+                }
             }
             return;
         }
