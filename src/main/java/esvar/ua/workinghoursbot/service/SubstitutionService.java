@@ -50,6 +50,7 @@ public class SubstitutionService {
     private final ScheduleDayRepository scheduleDayRepository;
     private final SchedulePersistenceService schedulePersistenceService;
 
+    @Transactional(readOnly = true)
     public List<LocalDate> getPlannedWorkDates(Long telegramUserId) {
         Optional<UserAccount> accountOptional = userAccountRepository.findByTelegramUserId(telegramUserId);
         if (accountOptional.isEmpty()) {
@@ -78,6 +79,7 @@ public class SubstitutionService {
         return combined.stream().distinct().sorted().toList();
     }
 
+    @Transactional(readOnly = true)
     public boolean isWorking(Long telegramUserId, LocalDate date) {
         return scheduleDayRepository.existsByTelegramUserIdAndDateAndStatus(
                 telegramUserId,
@@ -192,11 +194,13 @@ public class SubstitutionService {
         return saved;
     }
 
+    @Transactional(readOnly = true)
     public SubstitutionRequest getRequest(UUID requestId) {
         return substitutionRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
     }
 
+    @Transactional(readOnly = true)
     public List<UserAccount> findCandidates(UUID requestId, SubstitutionRequestScope scope, UserAccount senior) {
         SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
@@ -362,6 +366,7 @@ public class SubstitutionService {
                 });
     }
 
+    @Transactional(readOnly = true)
     public List<UserAccount> findSeniorsForLocation(UUID locationId) {
         return userAccountRepository.findByStatusAndRoleAndLocation_Id(
                 RegistrationStatus.APPROVED,
@@ -370,6 +375,7 @@ public class SubstitutionService {
         );
     }
 
+    @Transactional(readOnly = true)
     public Optional<UserAccount> findSeniorForRequest(Location location) {
         if (location == null) {
             return Optional.empty();
@@ -393,10 +399,12 @@ public class SubstitutionService {
         );
     }
 
+    @Transactional(readOnly = true)
     public List<SubstitutionRequestCandidate> findNotifiedCandidates(UUID requestId) {
         return candidateRepository.findByRequest_IdAndState(requestId, SubstitutionCandidateState.NOTIFIED);
     }
 
+    @Transactional(readOnly = true)
     public List<SubstitutionRequestCandidate> findExpiredCandidates(UUID requestId) {
         return candidateRepository.findByRequest_IdAndStateIn(
                 requestId,
