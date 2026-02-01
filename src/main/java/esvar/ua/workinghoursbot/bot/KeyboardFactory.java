@@ -90,6 +90,7 @@ public final class KeyboardFactory {
         }
         rows.add(singleButtonRow("🗓 Мій графік"));
         if (showActiveRequests) {
+            rows.add(singleButtonRow("Заявки продавців"));
             rows.add(singleButtonRow("📌 Активні запити на підміни"));
         }
         rows.add(singleButtonRow("📍 Моя локація"));

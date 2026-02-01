@@ -108,7 +108,32 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
             and ua.location in (select l from UserAccount tm join tm.managedLocations l where tm.id = :tmId)
             order by ua.createdAt asc
             """)
+    List<UserAccount> findByStatusAndRoleAndLocationManagedByTmOrderByCreatedAtAsc(
+            @Param("status") RegistrationStatus status,
+            @Param("role") Role role,
+            @Param("tmId") UUID tmId
+    );
+
+    @Query("""
+            select ua from UserAccount ua
+            where ua.status = :status
+            and ua.role = :role
+            and ua.location in (select l from UserAccount tm join tm.managedLocations l where tm.id = :tmId)
+            order by ua.createdAt asc
+            """)
     Optional<UserAccount> findFirstByStatusAndRoleAndLocationManagedByTmOrderByCreatedAtAsc(
+            @Param("status") RegistrationStatus status,
+            @Param("role") Role role,
+            @Param("tmId") UUID tmId
+    );
+
+    @Query("""
+            select ua from UserAccount ua
+            where ua.id = :id and ua.status = :status and ua.role = :role
+            and ua.location in (select l from UserAccount tm join tm.managedLocations l where tm.id = :tmId)
+            """)
+    Optional<UserAccount> findByIdAndStatusAndRoleAndLocationManagedByTm(
+            @Param("id") UUID id,
             @Param("status") RegistrationStatus status,
             @Param("role") Role role,
             @Param("tmId") UUID tmId

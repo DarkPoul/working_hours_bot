@@ -10,6 +10,7 @@ import esvar.ua.workinghoursbot.service.ShiftConfirmationService;
 import esvar.ua.workinghoursbot.service.LocationInfoService;
 import esvar.ua.workinghoursbot.service.AuditService;
 import esvar.ua.workinghoursbot.service.SubstitutionInteractionHandler;
+import esvar.ua.workinghoursbot.service.SeniorSellerMenuService;
 import esvar.ua.workinghoursbot.service.TmMenuService;
 import esvar.ua.workinghoursbot.service.UserAccountService;
 import java.util.Optional;
@@ -32,6 +33,7 @@ public class UpdateRouter {
     private final TmMenuService tmMenuService;
     private final ScheduleInteractionHandler scheduleInteractionHandler;
     private final SubstitutionInteractionHandler substitutionInteractionHandler;
+    private final SeniorSellerMenuService seniorSellerMenuService;
     private final ShiftConfirmationService shiftConfirmationService;
     private final LocationInfoService locationInfoService;
     private final AuditService auditService;
@@ -139,6 +141,13 @@ public class UpdateRouter {
         }
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() == Role.TM) {
             return tmMenuService.handleText(telegramUserId, chatId, text);
+        }
+        if (account != null && account.getStatus() == RegistrationStatus.APPROVED
+                && account.getRole() == Role.SENIOR_SELLER) {
+            BotResponse seniorResponse = seniorSellerMenuService.handleText(telegramUserId, chatId, text);
+            if (!seniorResponse.actions().isEmpty()) {
+                return seniorResponse;
+            }
         }
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() != Role.TM) {
             BotResponse substitutionResponse = substitutionInteractionHandler.handleMessage(telegramUserId, chatId, text);
