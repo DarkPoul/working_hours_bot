@@ -17,11 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class ScheduleService {
+public class SchedulePersistenceService {
 
     private final ScheduleDayRepository scheduleDayRepository;
 
-    public Set<LocalDate> loadWorkDays(Long telegramUserId, UUID locationId, YearMonth month) {
+    public Set<LocalDate> loadMonth(Long telegramUserId, UUID locationId, YearMonth month) {
         LocalDate start = month.atDay(1);
         LocalDate end = month.atEndOfMonth();
         return scheduleDayRepository.findByTelegramUserIdAndLocationIdAndDateBetween(
@@ -44,15 +44,12 @@ public class ScheduleService {
         log.debug("Saving schedule month. userId={}, locationId={}, month={}, start={}, end={}, workDaysCount={}",
                 telegramUserId, locationId, month, start, end, workDaysCount);
 
-        // 1. Видаляємо існуючі записи
         scheduleDayRepository.deleteByTelegramUserIdAndLocationIdAndDateBetween(
                 telegramUserId,
                 locationId,
                 start,
                 end
         );
-
-        // 2. ВАЖЛИВО: Викликаємо flush(), щоб Hibernate виконав DELETE в SQLite перед INSERT
         scheduleDayRepository.flush();
 
         if (workDays == null || workDays.isEmpty()) {
@@ -60,7 +57,6 @@ public class ScheduleService {
             return;
         }
 
-        // 3. Готуємо нові записи
         List<ScheduleDay> toSave = workDays.stream()
                 .filter(date -> !date.isBefore(start) && !date.isAfter(end))
                 .map(date -> {
@@ -76,7 +72,6 @@ public class ScheduleService {
         log.debug("Prepared schedule days to save. userId={}, locationId={}, month={}, filteredCount={}",
                 telegramUserId, locationId, month, toSave.size());
 
-        // 4. Зберігаємо нові дані
         scheduleDayRepository.saveAll(toSave);
         scheduleDayRepository.flush();
 

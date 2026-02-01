@@ -4,7 +4,7 @@ import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.Role;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.service.RegistrationService;
-import esvar.ua.workinghoursbot.service.ScheduleInteractionService;
+import esvar.ua.workinghoursbot.service.ScheduleInteractionHandler;
 import esvar.ua.workinghoursbot.service.TmMenuService;
 import esvar.ua.workinghoursbot.service.UserAccountService;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +22,7 @@ public class UpdateRouter {
     private final RegistrationService registrationService;
     private final UserAccountService userAccountService;
     private final TmMenuService tmMenuService;
-    private final ScheduleInteractionService scheduleInteractionService;
+    private final ScheduleInteractionHandler scheduleInteractionHandler;
 
     public BotResponse route(Update update) {
         if (update == null) {
@@ -72,7 +72,7 @@ public class UpdateRouter {
             return BotResponse.empty();
         }
 
-        BotResponse response = scheduleInteractionService.handleCallback(callbackQuery);
+        BotResponse response = scheduleInteractionHandler.handleCallback(callbackQuery);
         if (!response.actions().isEmpty()) {
             return response;
         }
@@ -98,8 +98,9 @@ public class UpdateRouter {
             return tmMenuService.handleText(telegramUserId, chatId, text);
         }
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() != Role.TM) {
-            if (scheduleInteractionService.isScheduleCommand(text)) {
-                return scheduleInteractionService.handleMenuCommand(telegramUserId, chatId, text);
+            BotResponse response = scheduleInteractionHandler.handleMessage(telegramUserId, chatId, text);
+            if (!response.actions().isEmpty()) {
+                return response;
             }
         }
         return registrationService.handleText(telegramUserId, chatId, text);
