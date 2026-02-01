@@ -543,7 +543,10 @@ public class SubstitutionService {
     @Transactional(readOnly = true)
     public Optional<UserAccount> findSeniorForRequest(Location location) {
         if (location == null) {
-            return Optional.empty();
+            return userAccountRepository.findFirstByStatusAndRoleOrderByCreatedAtAsc(
+                    RegistrationStatus.APPROVED,
+                    Role.SENIOR_SELLER
+            );
         }
         Optional<UserAccount> tmOptional = userAccountRepository.findActiveTmByManagedLocation(location.getId());
         if (tmOptional.isPresent()) {
@@ -557,10 +560,17 @@ public class SubstitutionService {
                 return senior;
             }
         }
-        return userAccountRepository.findFirstByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
+        Optional<UserAccount> localSenior = userAccountRepository.findFirstByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
                 RegistrationStatus.APPROVED,
                 Role.SENIOR_SELLER,
                 location.getId()
+        );
+        if (localSenior.isPresent()) {
+            return localSenior;
+        }
+        return userAccountRepository.findFirstByStatusAndRoleOrderByCreatedAtAsc(
+                RegistrationStatus.APPROVED,
+                Role.SENIOR_SELLER
         );
     }
 
