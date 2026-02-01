@@ -45,6 +45,9 @@ public class RegistrationSession {
     @Column(name = "draft_location_page")
     private Integer draftLocationPage;
 
+    @Column(name = "tm_pin_attempts", nullable = false)
+    private Integer tmPinAttempts;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -56,6 +59,7 @@ public class RegistrationSession {
         if (id == null) id = UUID.randomUUID();
         Instant now = Instant.now();
         if (createdAt == null) createdAt = now;
+        if (tmPinAttempts == null) tmPinAttempts = 0;
         updatedAt = now;
     }
 
