@@ -320,6 +320,16 @@ public class TmMenuService {
         return BotResponse.of(message);
     }
 
+    private BotResponse showLocationDeleteConfirm(TmSession session, Long chatId) {
+        UUID locationId = session.getSelectedLocationId();
+        if (locationId == null) {
+            return showLocationDeleteList(session, chatId);
+        }
+        return locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId())
+                .map(location -> showLocationDeleteConfirm(session, chatId, location))
+                .orElseGet(() -> showLocationDeleteList(session, chatId));
+    }
+
     private BotResponse showScheduleLocationsList(TmSession session, Long chatId) {
         session.setState(TmState.SCHEDULE_LOCATIONS_LIST);
         session.setSelectedLocationId(null);
