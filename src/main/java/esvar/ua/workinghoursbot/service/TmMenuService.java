@@ -30,13 +30,14 @@ public class TmMenuService {
     private static final String BUTTON_LOCATIONS = "Локації";
     private static final String BUTTON_SCHEDULE = "Графік локацій";
     private static final String BUTTON_ADD_LOCATION = "Додати локацію";
-    private static final String BUTTON_DELETE_LOCATION = "Видалити локацію";
+    private static final String BUTTON_DELETE_LOCATION = "Прибрати локацію";
     private static final String BUTTON_BACK = "Назад";
     private static final String BUTTON_YES = "Так";
     private static final String BUTTON_REJECT = "Заборонити";
     private static final String BUTTON_ENABLE_SCHEDULE = "Дозволити внесення графіку";
     private static final String BUTTON_DISABLE_SCHEDULE = "Заборонити внесення графіку";
     private static final String TM_SCHEDULE_CALLBACK = "TM_SCHED:";
+    private static final String LOCATION_SEPARATOR = " | ";
 
     private final RegistrationRequestService registrationRequestService;
     private final LocationService locationService;
@@ -124,7 +125,7 @@ public class TmMenuService {
         if (month == null) {
             return BotResponse.of(answer(callbackQuery, "Недоступно"));
         }
-        Optional<Location> locationOptional = locationService.findByIdAndTmUserId(locationId, tm.getTelegramUserId());
+        Optional<Location> locationOptional = locationService.findActiveByIdAndManagedTmId(locationId, tm.getId());
         if (locationOptional.isEmpty()) {
             return BotResponse.of(answer(callbackQuery, "Недоступно"));
         }
@@ -146,7 +147,9 @@ public class TmMenuService {
             return showMainMenu(session.getTelegramUserId(), chatId);
         }
 
-        List<UserAccount> requests = registrationRequestService.findPendingByTmUserId(session.getTelegramUserId());
+        List<UserAccount> requests = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> registrationRequestService.findPendingByTmId(tm.getId()))
+                .orElseGet(List::of);
         Optional<UserAccount> request = findRequestByButton(requests, text);
         if (request.isEmpty()) {
             SendMessage message = buildMessage(chatId, "Оберіть заявку зі списку.");
@@ -171,10 +174,8 @@ public class TmMenuService {
         if (requestId == null) {
             return showRequestsList(session, chatId);
         }
-        Optional<UserAccount> request = registrationRequestService.findPendingByIdAndTmUserId(
-                requestId,
-                session.getTelegramUserId()
-        );
+        Optional<UserAccount> request = resolveTmAccount(session.getTelegramUserId())
+                .flatMap(tm -> registrationRequestService.findPendingByIdAndTmId(requestId, tm.getId()));
         if (request.isEmpty()) {
             return showRequestsList(session, chatId);
         }
@@ -198,13 +199,18 @@ public class TmMenuService {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
             return showLocationsMenu(session, chatId);
         }
-        String normalized = normalizeName(text);
-        if (normalized == null) {
-            SendMessage message = buildMessage(chatId, "Назва локації не може бути порожньою.");
-            message.setReplyMarkup(KeyboardFactory.backKeyboard());
+        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
+        if (tmAccount.isEmpty()) {
+            return showLocationsMenu(session, chatId);
+        }
+        List<Location> locations = locationService.findActiveAvailableForTm(tmAccount.get().getId());
+        Optional<Location> location = findLocationByCode(locations, text);
+        if (location.isEmpty()) {
+            SendMessage message = buildMessage(chatId, "Оберіть локацію зі списку.");
+            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
             return BotResponse.of(message);
         }
-        session.setDraftLocationName(normalized);
+        session.setSelectedLocationId(location.get().getId());
         session.setState(TmState.LOCATION_ADD_CONFIRM);
         tmSessionService.save(session);
         return showLocationAddConfirm(session, chatId);
@@ -218,12 +224,16 @@ public class TmMenuService {
             return showLocationAddConfirm(session, chatId);
         }
 
-        String name = session.getDraftLocationName();
-        if (name == null || name.isBlank()) {
+        UUID locationId = session.getSelectedLocationId();
+        if (locationId == null) {
             return showLocationAddInput(session, chatId);
         }
-        locationService.createLocation(session.getTelegramUserId(), name);
-        session.setDraftLocationName(null);
+        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
+        Optional<Location> location = locationService.findById(locationId).filter(Location::isActive);
+        if (tmAccount.isPresent() && location.isPresent()) {
+            userAccountService.addManagedLocation(tmAccount.get(), location.get());
+        }
+        session.setSelectedLocationId(null);
         session.setState(TmState.LOCATIONS_MENU);
         tmSessionService.save(session);
 
@@ -236,11 +246,13 @@ public class TmMenuService {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
             return showLocationsMenu(session, chatId);
         }
-        List<Location> locations = locationService.findActiveByTmUserId(session.getTelegramUserId());
-        Optional<Location> location = findLocationByName(locations, text);
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveManagedByTmId(tm.getId()))
+                .orElseGet(List::of);
+        Optional<Location> location = findLocationByCode(locations, text);
         if (location.isEmpty()) {
             SendMessage message = buildMessage(chatId, "Оберіть локацію зі списку.");
-            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationNames(locations)));
+            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
             return BotResponse.of(message);
         }
         return showLocationDeleteConfirm(session, chatId, location.get());
@@ -255,15 +267,16 @@ public class TmMenuService {
         }
 
         UUID locationId = session.getSelectedLocationId();
-        if (locationId != null) {
-            locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId())
-                    .ifPresent(locationService::deactivateLocation);
+        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
+        if (locationId != null && tmAccount.isPresent()) {
+            locationService.findActiveByIdAndManagedTmId(locationId, tmAccount.get().getId())
+                    .ifPresent(location -> userAccountService.removeManagedLocation(tmAccount.get(), location));
         }
         session.setSelectedLocationId(null);
         session.setState(TmState.LOCATIONS_MENU);
         tmSessionService.save(session);
 
-        SendMessage done = buildMessage(chatId, "Готово. Локацію видалено.");
+        SendMessage done = buildMessage(chatId, "Готово. Локацію прибрано.");
         SendMessage menu = buildLocationsMenuMessage(session, chatId);
         return BotResponse.of(done, menu);
     }
@@ -273,7 +286,8 @@ public class TmMenuService {
         if (locationId == null) {
             return showLocationDeleteList(session, chatId);
         }
-        return locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId())
+        return resolveTmAccount(session.getTelegramUserId())
+                .flatMap(tm -> locationService.findActiveByIdAndManagedTmId(locationId, tm.getId()))
                 .map(location -> showLocationDeleteConfirm(session, chatId, location))
                 .orElseGet(() -> showLocationDeleteList(session, chatId));
     }
@@ -283,11 +297,13 @@ public class TmMenuService {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
             return showMainMenu(session.getTelegramUserId(), chatId);
         }
-        List<Location> locations = locationService.findActiveByTmUserId(session.getTelegramUserId());
-        Optional<Location> location = findLocationByName(locations, text);
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveManagedByTmId(tm.getId()))
+                .orElseGet(List::of);
+        Optional<Location> location = findLocationByCode(locations, text);
         if (location.isEmpty()) {
             SendMessage message = buildMessage(chatId, "Оберіть локацію зі списку.");
-            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationNames(locations)));
+            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
             return BotResponse.of(message);
         }
         return showScheduleLocationView(session, chatId, location.get());
@@ -308,7 +324,9 @@ public class TmMenuService {
         clearSelections(session);
         tmSessionService.save(session);
 
-        List<UserAccount> requests = registrationRequestService.findPendingByTmUserId(session.getTelegramUserId());
+        List<UserAccount> requests = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> registrationRequestService.findPendingByTmId(tm.getId()))
+                .orElseGet(List::of);
         if (requests.isEmpty()) {
             SendMessage message = buildMessage(chatId, "Заявок немає.");
             message.setReplyMarkup(KeyboardFactory.backKeyboard());
@@ -349,22 +367,29 @@ public class TmMenuService {
 
     private BotResponse showLocationAddInput(TmSession session, Long chatId) {
         session.setState(TmState.LOCATION_ADD_INPUT);
-        session.setDraftLocationName(null);
+        session.setSelectedLocationId(null);
         tmSessionService.save(session);
 
-        String text = """
-                Додавання нової локації
-                Назва: ...
-                """;
-        SendMessage message = buildMessage(chatId, text.trim());
-        message.setReplyMarkup(KeyboardFactory.backKeyboard());
+        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
+        List<Location> locations = tmAccount.map(tm -> locationService.findActiveAvailableForTm(tm.getId()))
+                .orElseGet(List::of);
+        if (locations.isEmpty()) {
+            SendMessage message = buildMessage(chatId, "Немає доступних локацій для додавання.");
+            message.setReplyMarkup(KeyboardFactory.backKeyboard());
+            return BotResponse.of(message);
+        }
+        SendMessage message = buildMessage(chatId, "Оберіть локацію для додавання:");
+        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
         return BotResponse.of(message);
     }
 
     private BotResponse showLocationAddConfirm(TmSession session, Long chatId) {
-        String name = session.getDraftLocationName() == null ? "" : session.getDraftLocationName();
+        UUID locationId = session.getSelectedLocationId();
+        String name = locationId == null
+                ? "-"
+                : locationService.findById(locationId).map(Location::getName).orElse("-");
         String text = """
-                Додавання нової локації
+                Додавання локації під контроль
                 Назва: %s
                 Ви впевнені що хочете додати?
                 """.formatted(name);
@@ -378,14 +403,16 @@ public class TmMenuService {
         session.setSelectedLocationId(null);
         tmSessionService.save(session);
 
-        List<Location> locations = locationService.findActiveByTmUserId(session.getTelegramUserId());
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveManagedByTmId(tm.getId()))
+                .orElseGet(List::of);
         if (locations.isEmpty()) {
-            SendMessage message = buildMessage(chatId, "Немає локацій для видалення.");
+            SendMessage message = buildMessage(chatId, "Немає локацій для прибирання.");
             message.setReplyMarkup(KeyboardFactory.backKeyboard());
             return BotResponse.of(message);
         }
-        SendMessage message = buildMessage(chatId, "Оберіть локацію для видалення:");
-        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationNames(locations)));
+        SendMessage message = buildMessage(chatId, "Оберіть локацію для прибирання:");
+        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
         return BotResponse.of(message);
     }
 
@@ -395,9 +422,9 @@ public class TmMenuService {
         tmSessionService.save(session);
 
         String text = """
-                Видалення локації
+                Прибирання локації
                 Назва: %s
-                Ви впевнені що хочете видалити?
+                Ви впевнені що хочете прибрати?
                 """.formatted(location.getName());
         SendMessage message = buildMessage(chatId, text.trim());
         message.setReplyMarkup(KeyboardFactory.yesBackKeyboard());
@@ -411,14 +438,16 @@ public class TmMenuService {
         session.setSelectedLocationId(null);
         tmSessionService.save(session);
 
-        List<Location> locations = locationService.findActiveByTmUserId(session.getTelegramUserId());
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveManagedByTmId(tm.getId()))
+                .orElseGet(List::of);
         if (locations.isEmpty()) {
             SendMessage message = buildMessage(chatId, "У вас ще немає локацій.");
             message.setReplyMarkup(KeyboardFactory.backKeyboard());
             return BotResponse.of(message);
         }
         SendMessage message = buildMessage(chatId, "Оберіть локацію:");
-        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationNames(locations)));
+        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
         return BotResponse.of(message);
     }
 
@@ -443,7 +472,8 @@ public class TmMenuService {
         if (locationId == null) {
             return showScheduleLocationsList(session, chatId);
         }
-        Optional<Location> location = locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId());
+        Optional<Location> location = resolveTmAccount(session.getTelegramUserId())
+                .flatMap(tm -> locationService.findActiveByIdAndManagedTmId(locationId, tm.getId()));
         return location.map(loc -> showScheduleLocationView(session, chatId, loc))
                 .orElseGet(() -> showScheduleLocationsList(session, chatId));
     }
@@ -453,7 +483,8 @@ public class TmMenuService {
         if (locationId == null) {
             return showScheduleLocationsList(session, chatId);
         }
-        Optional<Location> locationOptional = locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId());
+        Optional<Location> locationOptional = resolveTmAccount(session.getTelegramUserId())
+                .flatMap(tm -> locationService.findActiveByIdAndManagedTmId(locationId, tm.getId()));
         if (locationOptional.isEmpty()) {
             return showScheduleLocationsList(session, chatId);
         }
@@ -484,7 +515,8 @@ public class TmMenuService {
     private BotResponse approveRequest(TmSession session, Long chatId) {
         UUID requestId = session.getSelectedRequestId();
         if (requestId != null) {
-            registrationRequestService.findPendingByIdAndTmUserId(requestId, session.getTelegramUserId())
+            resolveTmAccount(session.getTelegramUserId())
+                    .flatMap(tm -> registrationRequestService.findPendingByIdAndTmId(requestId, tm.getId()))
                     .ifPresent(request -> registrationRequestService.approve(request, session.getTelegramUserId()));
         }
         session.setSelectedRequestId(null);
@@ -498,7 +530,8 @@ public class TmMenuService {
     private BotResponse rejectRequest(TmSession session, Long chatId) {
         UUID requestId = session.getSelectedRequestId();
         if (requestId != null) {
-            registrationRequestService.findPendingByIdAndTmUserId(requestId, session.getTelegramUserId())
+            resolveTmAccount(session.getTelegramUserId())
+                    .flatMap(tm -> registrationRequestService.findPendingByIdAndTmId(requestId, tm.getId()))
                     .ifPresent(registrationRequestService::reject);
         }
         session.setSelectedRequestId(null);
@@ -527,20 +560,26 @@ public class TmMenuService {
                 .findFirst();
     }
 
-    private List<String> formatLocationNames(List<Location> locations) {
+    private List<String> formatLocationButtons(List<Location> locations) {
         return locations.stream()
-                .map(Location::getName)
+                .map(this::formatLocationButton)
                 .toList();
     }
 
-    private Optional<Location> findLocationByName(List<Location> locations, String name) {
+    private Optional<Location> findLocationByCode(List<Location> locations, String buttonText) {
+        String code = parseLocationCode(buttonText);
+        if (code == null) {
+            return Optional.empty();
+        }
         return locations.stream()
-                .filter(location -> location.getName().equalsIgnoreCase(name))
+                .filter(location -> code.equalsIgnoreCase(location.getCode()))
                 .findFirst();
     }
 
     private SendMessage buildLocationsMenuMessage(TmSession session, Long chatId) {
-        List<Location> locations = locationService.findActiveByTmUserId(session.getTelegramUserId());
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveManagedByTmId(tm.getId()))
+                .orElseGet(List::of);
         String text = locations.isEmpty()
                 ? "У вас ще немає локацій."
                 : buildLocationsListText(locations);
@@ -560,6 +599,10 @@ public class TmMenuService {
         return builder.toString();
     }
 
+    private String formatLocationButton(Location location) {
+        return "📍 %s%s%s".formatted(location.getName(), LOCATION_SEPARATOR, location.getCode());
+    }
+
     private static SendMessage buildMessage(Long chatId, String text) {
         return SendMessage.builder()
                 .chatId(chatId.toString())
@@ -575,15 +618,15 @@ public class TmMenuService {
         };
     }
 
-    private static String normalizeName(String input) {
-        if (input == null) {
+    private static String parseLocationCode(String text) {
+        if (text == null || !text.contains(LOCATION_SEPARATOR)) {
             return null;
         }
-        String trimmed = input.trim();
-        if (trimmed.isEmpty()) {
+        int index = text.lastIndexOf(LOCATION_SEPARATOR);
+        if (index < 0 || index + LOCATION_SEPARATOR.length() >= text.length()) {
             return null;
         }
-        return trimmed;
+        return text.substring(index + LOCATION_SEPARATOR.length()).trim();
     }
 
     private static UUID parseUuid(String raw) {
@@ -621,5 +664,10 @@ public class TmMenuService {
         session.setSelectedLocationId(null);
         session.setSelectedRequestId(null);
         session.setDraftLocationName(null);
+    }
+
+    private Optional<UserAccount> resolveTmAccount(Long telegramUserId) {
+        return userAccountService.findByTelegramUserId(telegramUserId)
+                .filter(account -> account.getRole() == Role.TM && account.getStatus() == RegistrationStatus.APPROVED);
     }
 }

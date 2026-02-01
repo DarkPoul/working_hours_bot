@@ -21,10 +21,12 @@ import esvar.ua.workinghoursbot.repository.UserAccountRepository;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 
 @SpringBootTest
 class SubstitutionServiceTest {
@@ -46,6 +48,9 @@ class SubstitutionServiceTest {
 
     @Autowired
     private SubstitutionRequestCandidateRepository candidateRepository;
+
+    @Autowired
+    private SubstitutionInteractionHandler substitutionInteractionHandler;
 
     @Test
     void findCandidatesFiltersWorkingUsers() {
@@ -115,6 +120,40 @@ class SubstitutionServiceTest {
 
         assertThat(firstResult.getStatus()).isEqualTo(SubstitutionService.AcceptOfferResult.Status.WAITING_TM_APPROVAL);
         assertThat(secondResult.getStatus()).isEqualTo(SubstitutionService.AcceptOfferResult.Status.CLOSED);
+    }
+
+    @Test
+    void findTmForRequestUsesManagedLocations() {
+        Location location = createLocation("L3");
+        UserAccount tm = createUser("TM Manager", 700L, null, Role.TM);
+        tm.getManagedLocations().add(location);
+        userAccountRepository.save(tm);
+
+        Optional<UserAccount> resolved = substitutionService.findTmForRequest(location);
+
+        assertThat(resolved).isPresent();
+        assertThat(resolved.get().getId()).isEqualTo(tm.getId());
+    }
+
+    @Test
+    void notifyTmApprovalWarnsRequesterWhenTmMissing() {
+        Location location = createLocation("L4");
+        UserAccount requester = createUser("Requester3", 800L, location, Role.SELLER);
+
+        SubstitutionRequest request = createRequest(
+                requester,
+                location,
+                LocalDate.now().plusDays(1),
+                SubstitutionRequestStatus.WAITING_TM_APPROVAL
+        );
+
+        List<org.telegram.telegrambots.meta.api.methods.BotApiMethod<?>> actions =
+                substitutionInteractionHandler.notifyTmApproval(request);
+
+        assertThat(actions).hasSize(1);
+        SendMessage message = (SendMessage) actions.get(0);
+        assertThat(message.getText())
+                .isEqualTo("⚠️ Не знайдено ТМ для підтвердження підміни. Зверніться до адміністратора.");
     }
 
     private Location createLocation(String name) {

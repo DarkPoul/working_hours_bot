@@ -53,12 +53,9 @@ public class LocationInfoService {
                 location.getId()
         );
 
-        String tmName = null;
-        if (location.getTmUserId() != null) {
-            tmName = userAccountRepository.findByTelegramUserId(location.getTmUserId())
-                    .map(UserAccount::getLastName)
-                    .orElse(null);
-        }
+        String tmName = userAccountRepository.findActiveTmByManagedLocation(location.getId())
+                .map(UserAccount::getLastName)
+                .orElse(null);
 
         String text = """
                 Моя локація

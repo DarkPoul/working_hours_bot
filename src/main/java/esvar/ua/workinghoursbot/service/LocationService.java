@@ -25,12 +25,20 @@ public class LocationService {
         return locationRepository.findByCodeAndActiveTrue(code);
     }
 
-    public List<Location> findActiveByTmUserId(Long tmUserId) {
-        return locationRepository.findByTmUserIdAndActiveTrueOrderByNameAsc(tmUserId);
+    public List<Location> findActiveManagedByTmId(UUID tmId) {
+        return locationRepository.findActiveByManagedTmId(tmId);
     }
 
-    public Optional<Location> findByIdAndTmUserId(UUID id, Long tmUserId) {
-        return locationRepository.findByIdAndTmUserId(id, tmUserId);
+    public Optional<Location> findActiveByIdAndManagedTmId(UUID id, UUID tmId) {
+        return locationRepository.findActiveByIdAndManagedTmId(id, tmId);
+    }
+
+    public List<Location> findActiveAvailableForTm(UUID tmId) {
+        return locationRepository.findActiveAvailableForTm(tmId);
+    }
+
+    public Optional<Location> findById(UUID id) {
+        return locationRepository.findById(id);
     }
 
     @Transactional

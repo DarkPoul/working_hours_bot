@@ -785,7 +785,7 @@ public class SubstitutionInteractionHandler {
         return actions;
     }
 
-    private List<BotApiMethod<?>> notifyTmApproval(SubstitutionRequest request) {
+    List<BotApiMethod<?>> notifyTmApproval(SubstitutionRequest request) {
         List<BotApiMethod<?>> actions = new ArrayList<>();
         UserAccount tmUser = request.getTmUser();
         if (tmUser == null) {
@@ -795,6 +795,9 @@ public class SubstitutionInteractionHandler {
             }
         }
         if (tmUser == null) {
+            log.warn("TM not found for substitution approval. requesterId={}, locationId={}",
+                    request.getRequester() != null ? request.getRequester().getId() : null,
+                    request.getLocation() != null ? request.getLocation().getId() : null);
             actions.add(notificationService.sendMessage(
                     request.getRequester().getTelegramChatId(),
                     "⚠️ Не знайдено ТМ для підтвердження підміни. Зверніться до адміністратора.",
