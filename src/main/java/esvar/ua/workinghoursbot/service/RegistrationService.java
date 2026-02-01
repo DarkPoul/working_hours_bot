@@ -57,6 +57,7 @@ public class RegistrationService {
         session.setDraftLastName(null);
         session.setDraftRole(null);
         session.setDraftLocationPage(0);
+        session.setTmPinAttempts(0);
         registrationSessionService.save(session);
 
         log.info("Start registration for telegramUserId={}", telegramUserId);
@@ -238,6 +239,9 @@ public class RegistrationService {
             return BotResponse.of(response);
         }
         if (!tmPin.equals(text == null ? "" : text.trim())) {
+            int attempts = Optional.ofNullable(session.getTmPinAttempts()).orElse(0) + 1;
+            session.setTmPinAttempts(attempts);
+            registrationSessionService.save(session);
             auditService.log(
                     AuditEventType.TM_PIN_FAILED,
                     null,
@@ -245,6 +249,20 @@ public class RegistrationService {
                     null,
                     "TelegramUserId: " + session.getTelegramUserId()
             );
+            if (attempts >= 3) {
+                UserAccount blockedAccount = blockTmAccount(session, chatId);
+                auditService.log(
+                        AuditEventType.TM_BLOCKED,
+                        blockedAccount.getId(),
+                        null,
+                        null,
+                        "TelegramUserId: " + session.getTelegramUserId()
+                );
+                registrationSessionService.deleteByTelegramUserId(session.getTelegramUserId());
+                SendMessage response = buildMessage(chatId, "Ви заблоковані після 3 невдалих спроб. Зверніться до адміністратора.");
+                response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
+                return BotResponse.of(response);
+            }
             SendMessage response = buildMessage(chatId, "Невірний PIN. Спробуйте ще раз.");
             response.setReplyMarkup(KeyboardFactory.backKeyboard());
             return BotResponse.of(response);
@@ -272,6 +290,21 @@ public class RegistrationService {
         account.setLastName(session.getDraftLastName());
         account.setRole(Role.TM);
         account.setStatus(RegistrationStatus.APPROVED);
+        return userAccountService.save(account);
+    }
+
+    private UserAccount blockTmAccount(RegistrationSession session, Long chatId) {
+        UserAccount account = userAccountService.findByTelegramUserId(session.getTelegramUserId())
+                .orElseGet(UserAccount::new);
+        account.setTelegramUserId(session.getTelegramUserId());
+        account.setTelegramChatId(chatId);
+        if (session.getDraftLastName() != null) {
+            account.setLastName(session.getDraftLastName());
+        }
+        if (session.getDraftRole() == Role.TM || account.getRole() == null) {
+            account.setRole(Role.TM);
+        }
+        account.setStatus(RegistrationStatus.BLOCKED);
         return userAccountService.save(account);
     }
 
@@ -349,6 +382,11 @@ public class RegistrationService {
             response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
             return BotResponse.of(response);
         }
+        if (account.getStatus() == RegistrationStatus.BLOCKED) {
+            SendMessage response = buildMessage(chatId, "Ваш акаунт заблоковано. Зверніться до адміністратора.");
+            response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
+            return BotResponse.of(response);
+        }
 
         SendMessage response = buildMessage(chatId, "Статус вашої заявки: %s".formatted(formatStatus(account.getStatus())));
         response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
@@ -403,6 +441,11 @@ public class RegistrationService {
             response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
             return BotResponse.of(response);
         }
+        if (account.getStatus() == RegistrationStatus.BLOCKED) {
+            SendMessage response = buildMessage(chatId, "Ваш акаунт заблоковано. Зверніться до адміністратора.");
+            response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
+            return BotResponse.of(response);
+        }
         SendMessage response = buildMessage(chatId,
                 "Ви вже зареєстровані. Статус: %s Роль: %s".formatted(
                         formatStatus(account.getStatus()),
@@ -430,11 +473,15 @@ public class RegistrationService {
     private BotResponse restartRegistration(Long telegramUserId, Long chatId) {
         registrationSessionService.deleteByTelegramUserId(telegramUserId);
         Optional<UserAccount> existing = userAccountService.findByTelegramUserId(telegramUserId);
-        existing.ifPresent(account -> {
+        if (existing.isPresent()) {
+            UserAccount account = existing.get();
+            if (account.getStatus() == RegistrationStatus.BLOCKED) {
+                return handleExistingAccount(chatId, account);
+            }
             if (account.getStatus() != RegistrationStatus.APPROVED) {
                 userAccountService.deleteByTelegramUserId(telegramUserId);
             }
-        });
+        }
         return startRegistration(telegramUserId, chatId);
     }
 
