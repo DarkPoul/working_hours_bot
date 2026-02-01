@@ -24,7 +24,7 @@ audit:
   chat-id: ${AUDIT_CHAT_ID:0}
 
 tm:
-  pin: ${TM_PIN:}
+  pin: ${TM_PIN:2525}
 
 logging:
   level:
