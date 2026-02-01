@@ -20,7 +20,6 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -33,7 +32,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class SubstitutionInteractionHandler {
 
     private static final String COMMAND_SUBSTITUTION = "🔁 Підміна";
@@ -141,7 +139,20 @@ public class SubstitutionInteractionHandler {
             }
             return withAnswer(callbackQuery, response);
         } catch (IllegalStateException ex) {
+            log.warn("Substitution callback validation failed: data={}, user={}",
+                    data,
+                    callbackQuery.getFrom().getId(),
+                    ex);
             return BotResponse.of(notificationService.answerCallbackQuery(callbackQuery.getId(), ex.getMessage()));
+        } catch (Exception ex) {
+            log.error("Substitution callback failed: data={}, user={}",
+                    data,
+                    callbackQuery.getFrom().getId(),
+                    ex);
+            return BotResponse.of(notificationService.answerCallbackQuery(
+                    callbackQuery.getId(),
+                    "Сталася помилка. Спробуйте ще раз."
+            ));
         }
     }
 
