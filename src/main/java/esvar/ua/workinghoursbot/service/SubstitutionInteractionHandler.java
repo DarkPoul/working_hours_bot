@@ -10,6 +10,7 @@ import esvar.ua.workinghoursbot.domain.SubstitutionRequest;
 import esvar.ua.workinghoursbot.domain.SubstitutionRequestCandidate;
 import esvar.ua.workinghoursbot.domain.SubstitutionRequestScope;
 import esvar.ua.workinghoursbot.domain.UserAccount;
+import esvar.ua.workinghoursbot.domain.SubstitutionRequestStatus;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -20,7 +21,6 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -33,7 +33,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class SubstitutionInteractionHandler {
 
     private static final String COMMAND_SUBSTITUTION = "🔁 Підміна";
@@ -54,9 +53,18 @@ public class SubstitutionInteractionHandler {
     private static final String CB_SENIOR_PICK = "SENIOR_SUB_PICK:";
     private static final String CB_SENIOR_REJECT = "SENIOR_SUB_REJECT:";
     private static final String CB_SENIOR_REJECT_REASON = "SENIOR_SUB_REJECT_REASON:";
+    private static final String CB_SENIOR_ACTIVE_LIST = "SENIOR_SUB_ACTIVE_LIST";
+    private static final String CB_SENIOR_ACTIVE_OPEN = "SENIOR_SUB_ACTIVE_OPEN:";
+    private static final String CB_SENIOR_ACTIVE_PAGE = "SENIOR_SUB_ACTIVE_PAGE:";
+    private static final String CB_SENIOR_TM_REJECT_MENU = "SENIOR_SUB_TM_REJECT_MENU:";
+    private static final String CB_SENIOR_STAY_WORKING = "SENIOR_SUB_STAY_WORKING:";
+    private static final String CB_SENIOR_FIND_AGAIN = "SENIOR_SUB_FIND_AGAIN:";
 
     private static final String CB_CANDIDATE_ACCEPT = "CAND_SUB_ACCEPT:";
     private static final String CB_CANDIDATE_DECLINE = "CAND_SUB_DECLINE:";
+
+    private static final String CB_TM_APPROVE = "TM_SUB_APPROVE:";
+    private static final String CB_TM_REJECT = "TM_SUB_REJECT:";
 
     private static final String CB_NAV_BACK = "NAV_BACK:";
 
@@ -65,6 +73,7 @@ public class SubstitutionInteractionHandler {
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd.MM HH:mm");
     private static final int DATE_PAGE_SIZE = 9;
     private static final int CANDIDATE_PAGE_SIZE = 8;
+    private static final int ACTIVE_REQUEST_PAGE_SIZE = 8;
 
     private final SubstitutionService substitutionService;
     private final SubstitutionDraftStore substitutionDraftStore;
@@ -129,10 +138,26 @@ public class SubstitutionInteractionHandler {
                 response = handleSeniorReject(callbackQuery);
             } else if (data.startsWith(CB_SENIOR_REJECT_REASON)) {
                 response = handleRejectReason(callbackQuery);
+            } else if (CB_SENIOR_ACTIVE_LIST.equals(data)) {
+                response = handleSeniorActiveList(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_ACTIVE_OPEN)) {
+                response = handleSeniorActiveOpen(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_ACTIVE_PAGE)) {
+                response = handleSeniorActivePage(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_TM_REJECT_MENU)) {
+                response = handleSeniorTmRejectMenu(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_STAY_WORKING)) {
+                response = handleSeniorStayWorking(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_FIND_AGAIN)) {
+                response = handleSeniorFindAgain(callbackQuery);
             } else if (data.startsWith(CB_CANDIDATE_ACCEPT)) {
                 response = handleCandidateAccept(callbackQuery);
             } else if (data.startsWith(CB_CANDIDATE_DECLINE)) {
                 response = handleCandidateDecline(callbackQuery);
+            } else if (data.startsWith(CB_TM_APPROVE)) {
+                response = handleTmApprove(callbackQuery);
+            } else if (data.startsWith(CB_TM_REJECT)) {
+                response = handleTmReject(callbackQuery);
             } else if (data.startsWith(CB_NAV_BACK)) {
                 response = handleNavBack(callbackQuery);
             }
@@ -305,11 +330,11 @@ public class SubstitutionInteractionHandler {
         UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_TAKE.length()));
         UserAccount senior = requireSenior(callbackQuery);
         SubstitutionRequest request = substitutionService.approveBySenior(requestId, senior.getTelegramUserId());
+        SubstitutionRequest saved = substitutionService.submitToTmApproval(request.getId());
 
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        actions.add(editMessage(callbackQuery.getMessage(), "✅ Ви взяли підміну.", null));
-        actions.addAll(notifyRequesterAndSeniors(request));
-        actions.addAll(notifyOtherCandidates(request));
+        actions.add(editMessage(callbackQuery.getMessage(), "✅ Запит відправлено на підтвердження ТМ.", null));
+        actions.addAll(notifyTmApproval(saved));
         return new BotResponse(actions);
     }
 
@@ -433,6 +458,77 @@ public class SubstitutionInteractionHandler {
         return new BotResponse(actions);
     }
 
+    private BotResponse handleSeniorActiveList(CallbackQuery callbackQuery) {
+        UserAccount senior = requireSenior(callbackQuery);
+        ActiveRequestsView view = buildActiveRequestsView(senior, 0);
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), view.text(), view.keyboard()));
+    }
+
+    private BotResponse handleSeniorActiveOpen(CallbackQuery callbackQuery) {
+        requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_ACTIVE_OPEN.length()));
+        SubstitutionRequest request = substitutionService.getRequest(requestId);
+        return BotResponse.of(renderSeniorRequestMenu(callbackQuery.getMessage(), request));
+    }
+
+    private BotResponse handleSeniorActivePage(CallbackQuery callbackQuery) {
+        UserAccount senior = requireSenior(callbackQuery);
+        int page = Integer.parseInt(callbackQuery.getData().substring(CB_SENIOR_ACTIVE_PAGE.length()));
+        ActiveRequestsView view = buildActiveRequestsView(senior, page);
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), view.text(), view.keyboard()));
+    }
+
+    private BotResponse handleSeniorTmRejectMenu(CallbackQuery callbackQuery) {
+        requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_TM_REJECT_MENU.length()));
+        return BotResponse.of(editMessage(
+                callbackQuery.getMessage(),
+                buildTmRejectMenuText(substitutionService.getRequest(requestId)),
+                buildTmRejectMenuKeyboard(requestId)
+        ));
+    }
+
+    private BotResponse handleSeniorStayWorking(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_STAY_WORKING.length()));
+        UserAccount senior = requireSenior(callbackQuery);
+        SubstitutionRequest request = substitutionService.cancelByStayWorking(requestId, senior.getTelegramUserId());
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "❌ Підміну скасовано.", null));
+        actions.addAll(notifyCancellation(request));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleSeniorFindAgain(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_FIND_AGAIN.length()));
+        requireSenior(callbackQuery);
+        return BotResponse.of(renderScopeMenu(callbackQuery.getMessage(), requestId));
+    }
+
+    private BotResponse handleTmApprove(CallbackQuery callbackQuery) {
+        UserAccount tm = requireTm(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_TM_APPROVE.length()));
+        SubstitutionRequest request = substitutionService.tmApprove(requestId, tm.getTelegramUserId());
+
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "✅ Підміну підтверджено. Запит закрито.", null));
+        actions.addAll(notifyRequesterAndSeniors(request));
+        actions.addAll(notifyOtherCandidates(request));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleTmReject(CallbackQuery callbackQuery) {
+        UserAccount tm = requireTm(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_TM_REJECT.length()));
+        SubstitutionRequest beforeDecision = substitutionService.getRequest(requestId);
+        SubstitutionRequest request = substitutionService.tmReject(requestId, tm.getTelegramUserId());
+        request.setProposedReplacementUser(beforeDecision.getProposedReplacementUser());
+
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "❌ Підміну відхилено.", null));
+        actions.addAll(notifyTmRejection(request));
+        return new BotResponse(actions);
+    }
+
     private BotResponse handleCandidateAccept(CallbackQuery callbackQuery) {
         UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_CANDIDATE_ACCEPT.length()));
         SubstitutionService.AcceptOfferResult result = substitutionService.acceptOffer(
@@ -440,7 +536,7 @@ public class SubstitutionInteractionHandler {
                 callbackQuery.getFrom().getId()
         );
 
-        if (result.getStatus() != SubstitutionService.AcceptOfferResult.Status.APPROVED) {
+        if (result.getStatus() != SubstitutionService.AcceptOfferResult.Status.WAITING_TM_APPROVAL) {
             List<BotApiMethod<?>> actions = new ArrayList<>();
             actions.add(notificationService.answerCallbackQuery(callbackQuery.getId(), "Підміну вже взяли."));
             actions.add(editMessage(
@@ -456,11 +552,10 @@ public class SubstitutionInteractionHandler {
         List<BotApiMethod<?>> actions = new ArrayList<>();
         actions.add(editMessage(
                 callbackQuery.getMessage(),
-                "✅ Дякуємо! Ви взяли підміну на " + DATE_FORMAT.format(request.getRequestDate()) + ".",
+                "✅ Дякуємо! Очікуємо підтвердження ТМ.",
                 null
         ));
-        actions.addAll(notifyRequesterAndSeniors(request));
-        actions.addAll(notifyOtherCandidates(result.getOtherCandidates()));
+        actions.addAll(notifyTmApproval(substitutionService.submitToTmApproval(request.getId())));
         return new BotResponse(actions);
     }
 
@@ -487,6 +582,9 @@ public class SubstitutionInteractionHandler {
                     null
             ));
         }
+        if (context.startsWith("SENIOR_ACTIVE_EXIT")) {
+            return BotResponse.of(editMessage(callbackQuery.getMessage(), "Меню підміни закрито.", null));
+        }
         if (context.startsWith("SENIOR_SCOPE:")) {
             UUID requestId = CallbackIdEncoder.decode(context.substring("SENIOR_SCOPE:".length()));
             SubstitutionRequest request = substitutionService.getRequest(requestId);
@@ -500,25 +598,28 @@ public class SubstitutionInteractionHandler {
     }
 
     private EditMessageText renderSeniorRequestMenu(Message message, SubstitutionRequest request) {
+        String statusLine = switch (request.getStatus()) {
+            case WAITING_TM_APPROVAL -> "⏳ Очікує підтвердження ТМ";
+            case APPROVED -> "✅ Підтверджено";
+            case REJECTED -> "❌ Відхилено";
+            case CANCELLED -> "❌ Скасовано";
+            default -> "🕒 В роботі";
+        };
         String text = """
                 🔁 Запит на підміну
                 👤 Продавець: %s
                 📍 Локація: %s
                 📅 Дата: %s
                 🕒 Створено: %s
+                %s
                 """.formatted(
                 request.getRequester().getLastName(),
                 request.getLocation().getName(),
                 DATE_FORMAT.format(request.getRequestDate()),
-                DATE_TIME_FORMAT.format(request.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDateTime())
+                DATE_TIME_FORMAT.format(request.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDateTime()),
+                statusLine
         );
-        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
-                List.of(
-                        InlineKeyboardFactory.button("✅ Я візьму зміну", CB_SENIOR_TAKE + CallbackIdEncoder.encode(request.getId())),
-                        InlineKeyboardFactory.button("👥 Знайти заміну", CB_SENIOR_FIND + CallbackIdEncoder.encode(request.getId()))
-                ),
-                List.of(InlineKeyboardFactory.button("❌ Відхилити", CB_SENIOR_REJECT + CallbackIdEncoder.encode(request.getId())))
-        ));
+        InlineKeyboardMarkup keyboard = buildSeniorInlineKeyboard(request);
         return editMessage(message, text, keyboard);
     }
 
@@ -532,6 +633,58 @@ public class SubstitutionInteractionHandler {
                 List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_SCOPE:" + CallbackIdEncoder.encode(requestId)))
         ));
         return editMessage(message, "Де шукати заміну?", keyboard);
+    }
+
+    private ActiveRequestsView buildActiveRequestsView(UserAccount senior, int page) {
+        List<SubstitutionRequest> requests = substitutionService.listActiveRequestsForSenior(senior);
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        String text = "📌 Активні запити на підміну: " + requests.size();
+        if (requests.isEmpty()) {
+            rows.add(List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_ACTIVE_EXIT")));
+            return new ActiveRequestsView(text, InlineKeyboardFactory.rows(rows));
+        }
+
+        int totalPages = Math.max(1, (int) Math.ceil(requests.size() / (double) ACTIVE_REQUEST_PAGE_SIZE));
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        int start = safePage * ACTIVE_REQUEST_PAGE_SIZE;
+        int end = Math.min(requests.size(), start + ACTIVE_REQUEST_PAGE_SIZE);
+
+        for (SubstitutionRequest request : requests.subList(start, end)) {
+            String label = "👤 " + request.getRequester().getLastName()
+                    + " • " + DATE_SHORT_FORMAT.format(request.getRequestDate())
+                    + " • " + request.getLocation().getName();
+            rows.add(List.of(InlineKeyboardFactory.button(
+                    label,
+                    CB_SENIOR_ACTIVE_OPEN + CallbackIdEncoder.encode(request.getId())
+            )));
+        }
+
+        if (totalPages > 1) {
+            List<InlineKeyboardButton> navRow = new ArrayList<>();
+            if (safePage > 0) {
+                navRow.add(InlineKeyboardFactory.button("◀️ Попередня", CB_SENIOR_ACTIVE_PAGE + (safePage - 1)));
+            }
+            if (safePage < totalPages - 1) {
+                navRow.add(InlineKeyboardFactory.button("▶️ Далі", CB_SENIOR_ACTIVE_PAGE + (safePage + 1)));
+            }
+            rows.add(navRow);
+        }
+
+        rows.add(List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_ACTIVE_EXIT")));
+        return new ActiveRequestsView(text, InlineKeyboardFactory.rows(rows));
+    }
+
+    private String buildTmRejectMenuText(SubstitutionRequest request) {
+        return "❌ ТМ відхилив підміну на " + DATE_FORMAT.format(request.getRequestDate()) + ".\nЩо робимо далі?";
+    }
+
+    private InlineKeyboardMarkup buildTmRejectMenuKeyboard(UUID requestId) {
+        return InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("🧍‍♂️ Сиди працюй", CB_SENIOR_STAY_WORKING + CallbackIdEncoder.encode(requestId)),
+                        InlineKeyboardFactory.button("🔄 Інший кандидат", CB_SENIOR_FIND_AGAIN + CallbackIdEncoder.encode(requestId))
+                )
+        ));
     }
 
     private InlineKeyboardMarkup buildCandidatePickKeyboard(UUID requestId, List<UserAccount> candidates, int page) {
@@ -624,7 +777,7 @@ public class SubstitutionInteractionHandler {
             SendMessage message = notificationService.sendMessage(
                     senior.getTelegramChatId(),
                     buildSeniorRequestText(request),
-                    buildSeniorInlineKeyboard(request.getId())
+                    buildSeniorInlineKeyboard(request)
             );
             actions.add(message);
         } else {
@@ -635,6 +788,50 @@ public class SubstitutionInteractionHandler {
                     null
             ));
         }
+        return actions;
+    }
+
+    private List<BotApiMethod<?>> notifyTmApproval(SubstitutionRequest request) {
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        UserAccount tmUser = request.getTmUser();
+        if (tmUser == null) {
+            Optional<UserAccount> tmOptional = substitutionService.findTmForRequest(request.getLocation());
+            if (tmOptional.isPresent()) {
+                tmUser = tmOptional.get();
+            }
+        }
+        if (tmUser == null) {
+            actions.add(notificationService.sendMessage(
+                    request.getRequester().getTelegramChatId(),
+                    "⚠️ Не знайдено ТМ для підтвердження підміни. Зверніться до адміністратора.",
+                    null
+            ));
+            return actions;
+        }
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("✅ Підтвердити", CB_TM_APPROVE + CallbackIdEncoder.encode(request.getId())),
+                        InlineKeyboardFactory.button("❌ Відхилити", CB_TM_REJECT + CallbackIdEncoder.encode(request.getId()))
+                )
+        ));
+        String text = """
+                ✅ Запит на підтвердження підміни
+                👤 Хто просить: %s
+                👤 Кандидат: %s
+                📍 Локація: %s
+                📅 Дата: %s
+                Підтвердити підміну?
+                """.formatted(
+                request.getRequester().getLastName(),
+                Optional.ofNullable(request.getProposedReplacementUser()).map(UserAccount::getLastName).orElse("-"),
+                request.getLocation().getName(),
+                DATE_FORMAT.format(request.getRequestDate())
+        );
+        actions.add(notificationService.sendMessage(
+                tmUser.getTelegramChatId(),
+                text,
+                keyboard
+        ));
         return actions;
     }
 
@@ -654,6 +851,57 @@ public class SubstitutionInteractionHandler {
                             null
                     )));
         }
+        return actions;
+    }
+
+    private List<BotApiMethod<?>> notifyTmRejection(SubstitutionRequest request) {
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        UserAccount candidate = request.getProposedReplacementUser();
+        if (candidate != null) {
+            actions.add(notificationService.sendMessage(
+                    candidate.getTelegramChatId(),
+                    "❌ ТМ не підтвердив підміну. Дякуємо за готовність.",
+                    null
+            ));
+        }
+        actions.add(notificationService.sendMessage(
+                request.getRequester().getTelegramChatId(),
+                "❌ ТМ відхилив підміну на " + DATE_FORMAT.format(request.getRequestDate()) + ".",
+                null
+        ));
+        substitutionService.findSeniorForRequest(request.getLocation())
+                .ifPresent(senior -> actions.add(notificationService.sendMessage(
+                        senior.getTelegramChatId(),
+                        buildTmRejectMenuText(request),
+                        buildTmRejectMenuKeyboard(request.getId())
+                )));
+        return actions;
+    }
+
+    private List<BotApiMethod<?>> notifyCancellation(SubstitutionRequest request) {
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        List<SubstitutionRequestCandidate> notified = substitutionService.findNotifiedCandidates(request.getId());
+        for (SubstitutionRequestCandidate candidate : notified) {
+            Long chatId = candidate.getNotifiedChatId();
+            if (chatId == null) {
+                continue;
+            }
+            if (candidate.getNotifiedMessageId() != null) {
+                actions.add(notificationService.editMessage(
+                        chatId,
+                        candidate.getNotifiedMessageId().intValue(),
+                        "❌ Підміна скасована.",
+                        null
+                ));
+            } else {
+                actions.add(notificationService.sendMessage(chatId, "❌ Підміна скасована.", null));
+            }
+        }
+        actions.add(notificationService.sendMessage(
+                request.getRequester().getTelegramChatId(),
+                "⚠️ Підміну скасовано. Ви працюєте за графіком.",
+                null
+        ));
         return actions;
     }
 
@@ -702,14 +950,18 @@ public class SubstitutionInteractionHandler {
         );
     }
 
-    private InlineKeyboardMarkup buildSeniorInlineKeyboard(UUID requestId) {
-        return InlineKeyboardFactory.rows(List.of(
-                List.of(
-                        InlineKeyboardFactory.button("✅ Я візьму зміну", CB_SENIOR_TAKE + CallbackIdEncoder.encode(requestId)),
-                        InlineKeyboardFactory.button("👥 Знайти заміну", CB_SENIOR_FIND + CallbackIdEncoder.encode(requestId))
-                ),
-                List.of(InlineKeyboardFactory.button("❌ Відхилити", CB_SENIOR_REJECT + CallbackIdEncoder.encode(requestId)))
-        ));
+    private InlineKeyboardMarkup buildSeniorInlineKeyboard(SubstitutionRequest request) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (request.getStatus() == SubstitutionRequestStatus.NEW
+                || request.getStatus() == SubstitutionRequestStatus.IN_PROGRESS) {
+            rows.add(List.of(
+                    InlineKeyboardFactory.button("✅ Я візьму зміну", CB_SENIOR_TAKE + CallbackIdEncoder.encode(request.getId())),
+                    InlineKeyboardFactory.button("👥 Знайти заміну", CB_SENIOR_FIND + CallbackIdEncoder.encode(request.getId()))
+            ));
+            rows.add(List.of(InlineKeyboardFactory.button("❌ Відхилити", CB_SENIOR_REJECT + CallbackIdEncoder.encode(request.getId()))));
+        }
+        rows.add(List.of(InlineKeyboardFactory.button("📌 Активні запити на підміну", CB_SENIOR_ACTIVE_LIST)));
+        return InlineKeyboardFactory.rows(rows);
     }
 
     private EditMessageText editMessage(Message message, String text, InlineKeyboardMarkup keyboard) {
@@ -766,6 +1018,18 @@ public class SubstitutionInteractionHandler {
         return account;
     }
 
+    private UserAccount requireTm(CallbackQuery callbackQuery) {
+        UserAccount account = userAccountService.findByTelegramUserId(callbackQuery.getFrom().getId())
+                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
+        if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() != Role.TM) {
+            throw new IllegalStateException("Недостатньо прав.");
+        }
+        return account;
+    }
+
     private record DateSelectionView(String text, InlineKeyboardMarkup keyboard) {
+    }
+
+    private record ActiveRequestsView(String text, InlineKeyboardMarkup keyboard) {
     }
 }

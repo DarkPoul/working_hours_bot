@@ -4,6 +4,7 @@ import esvar.ua.workinghoursbot.domain.SubstitutionRequest;
 import esvar.ua.workinghoursbot.domain.SubstitutionRequestStatus;
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -18,6 +19,13 @@ public interface SubstitutionRequestRepository extends JpaRepository<Substitutio
             LocalDate requestDate,
             Collection<SubstitutionRequestStatus> statuses
     );
+
+    List<SubstitutionRequest> findByStatusInAndLocation_TmUserIdOrderByRequestDateAsc(
+            Collection<SubstitutionRequestStatus> statuses,
+            Long tmUserId
+    );
+
+    List<SubstitutionRequest> findByStatusInOrderByRequestDateAsc(Collection<SubstitutionRequestStatus> statuses);
 
     @Lock(LockModeType.OPTIMISTIC)
     Optional<SubstitutionRequest> findWithLockById(UUID id);

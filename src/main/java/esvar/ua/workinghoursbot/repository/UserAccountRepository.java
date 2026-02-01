@@ -49,4 +49,9 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
             Role role,
             UUID locationId
     );
+
+    Optional<UserAccount> findFirstByStatusAndRoleOrderByCreatedAtAsc(
+            RegistrationStatus status,
+            Role role
+    );
 }
