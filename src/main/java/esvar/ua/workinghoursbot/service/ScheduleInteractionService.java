@@ -151,12 +151,16 @@ public class ScheduleInteractionService {
         }
         if ("S".equals(action)) {
             try {
+                log.debug("Saving schedule draft. userId={}, locationId={}, month={}, workDaysCount={}",
+                        telegramUserId, location.getId(), draft.getYearMonth(), draft.getWorkDays().size());
                 scheduleService.saveMonth(telegramUserId, location.getId(), draft.getYearMonth(), draft.getWorkDays());
                 Set<LocalDate> persistedDays = scheduleService.loadWorkDays(
                         telegramUserId,
                         location.getId(),
                         draft.getYearMonth()
                 );
+                log.debug("Loaded persisted schedule days. userId={}, locationId={}, month={}, persistedCount={}",
+                        telegramUserId, location.getId(), draft.getYearMonth(), persistedDays.size());
                 draft.clear();
                 draft.getWorkDays().addAll(persistedDays);
                 draftStore.saveDraft(draft);
