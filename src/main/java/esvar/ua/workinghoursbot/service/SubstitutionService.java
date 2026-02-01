@@ -385,7 +385,7 @@ public class SubstitutionService {
             throw new IllegalStateException("Запит не потребує підтвердження ТМ.");
         }
         Optional<UserAccount> tmOptional = findTmForRequest(request.getLocation());
-        tmOptional.ifPresent(request::setTmUser);
+        tmOptional.ifPresent(tm -> request.setTmUserId(tm.getTelegramUserId()));
         SubstitutionRequest saved = substitutionRequestRepository.save(request);
         auditService.log(
                 AuditEventType.SWAP_SENT_TO_TM,
@@ -418,7 +418,7 @@ public class SubstitutionService {
         request.setReplacementUser(proposed);
         request.setResolvedByUser(tmUser);
         request.setResolvedAt(Instant.now());
-        request.setTmUser(tmUser);
+        request.setTmUserId(tmTelegramUserId);
         request.setTmDecision("APPROVE");
         request.setTmDecidedAt(Instant.now());
         SubstitutionRequest saved = substitutionRequestRepository.save(request);
@@ -457,7 +457,7 @@ public class SubstitutionService {
             throw new IllegalStateException("Запит вже закритий.");
         }
         request.setStatus(SubstitutionRequestStatus.IN_PROGRESS);
-        request.setTmUser(tmUser);
+        request.setTmUserId(tmTelegramUserId);
         request.setTmDecision("REJECT");
         request.setTmDecidedAt(Instant.now());
         request.setProposedReplacementUser(null);
@@ -542,36 +542,84 @@ public class SubstitutionService {
 
     @Transactional(readOnly = true)
     public Optional<UserAccount> findSeniorForRequest(Location location) {
-        if (location == null) {
-            return userAccountRepository.findFirstByStatusAndRoleOrderByCreatedAtAsc(
-                    RegistrationStatus.APPROVED,
-                    Role.SENIOR_SELLER
+        Long tmTelegramUserId = location != null ? location.getTmUserId() : null;
+        return findSeniorForRequestWithDiagnostics(location, tmTelegramUserId).senior();
+    }
+
+    @Transactional(readOnly = true)
+    public SeniorLookupResult findSeniorForRequestWithDiagnostics(Location location, Long tmTelegramUserId) {
+        UUID locationId = location != null ? location.getId() : null;
+        List<UserAccount> locationSeniors = locationId == null
+                ? List.of()
+                : userAccountRepository.findByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
+                        RegistrationStatus.APPROVED,
+                        Role.SENIOR_SELLER,
+                        locationId
+                );
+        if (!locationSeniors.isEmpty()) {
+            return new SeniorLookupResult(
+                    Optional.of(locationSeniors.getFirst()),
+                    locationSeniors.size(),
+                    0,
+                    0,
+                    SeniorLookupStage.LOCATION
             );
         }
-        Optional<UserAccount> tmOptional = userAccountRepository.findActiveTmByManagedLocation(location.getId());
-        if (tmOptional.isPresent()) {
-            Optional<UserAccount> senior = userAccountRepository
-                    .findFirstByStatusAndRoleAndLocationManagedByTmOrderByCreatedAtAsc(
-                            RegistrationStatus.APPROVED,
-                            Role.SENIOR_SELLER,
-                            tmOptional.get().getId()
-                    );
-            if (senior.isPresent()) {
-                return senior;
-            }
+
+        List<UserAccount> tmApprovedSeniors = tmTelegramUserId == null
+                ? List.of()
+                : userAccountRepository.findByStatusAndRoleAndApprovedByTelegramUserIdOrderByCreatedAtAsc(
+                        RegistrationStatus.APPROVED,
+                        Role.SENIOR_SELLER,
+                        tmTelegramUserId
+                );
+        if (!tmApprovedSeniors.isEmpty()) {
+            return new SeniorLookupResult(
+                    Optional.of(tmApprovedSeniors.getFirst()),
+                    locationSeniors.size(),
+                    tmApprovedSeniors.size(),
+                    0,
+                    SeniorLookupStage.TM_APPROVER
+            );
         }
-        Optional<UserAccount> localSenior = userAccountRepository.findFirstByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
-                RegistrationStatus.APPROVED,
-                Role.SENIOR_SELLER,
-                location.getId()
-        );
-        if (localSenior.isPresent()) {
-            return localSenior;
-        }
-        return userAccountRepository.findFirstByStatusAndRoleOrderByCreatedAtAsc(
+
+        List<UserAccount> globalSeniors = userAccountRepository.findByStatusAndRoleOrderByCreatedAtAsc(
                 RegistrationStatus.APPROVED,
                 Role.SENIOR_SELLER
         );
+        if (!globalSeniors.isEmpty()) {
+            log.warn("Fallback to global senior lookup. locationId={}, tmTelegramUserId={}",
+                    locationId, tmTelegramUserId);
+            return new SeniorLookupResult(
+                    Optional.of(globalSeniors.getFirst()),
+                    locationSeniors.size(),
+                    tmApprovedSeniors.size(),
+                    globalSeniors.size(),
+                    SeniorLookupStage.GLOBAL
+            );
+        }
+        return new SeniorLookupResult(
+                Optional.empty(),
+                locationSeniors.size(),
+                tmApprovedSeniors.size(),
+                0,
+                SeniorLookupStage.NONE
+        );
+    }
+
+    public record SeniorLookupResult(
+            Optional<UserAccount> senior,
+            int locationMatches,
+            int tmApproverMatches,
+            int globalMatches,
+            SeniorLookupStage stage
+    ) {}
+
+    public enum SeniorLookupStage {
+        LOCATION,
+        TM_APPROVER,
+        GLOBAL,
+        NONE
     }
 
     @Transactional(readOnly = true)

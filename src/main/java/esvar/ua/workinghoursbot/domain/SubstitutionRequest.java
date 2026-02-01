@@ -62,9 +62,8 @@ public class SubstitutionRequest {
     @JoinColumn(name = "proposed_replacement_user_id")
     private UserAccount proposedReplacementUser;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "tm_user_id")
-    private UserAccount tmUser;
+    @Column(name = "tm_user_id")
+    private Long tmUserId;
 
     @Column(name = "tm_decision", length = 16)
     private String tmDecision;

@@ -30,6 +30,18 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
             UUID locationId
     );
 
+    List<UserAccount> findByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
+            RegistrationStatus status,
+            Role role,
+            UUID locationId
+    );
+
+    List<UserAccount> findByStatusAndRoleAndApprovedByTelegramUserIdOrderByCreatedAtAsc(
+            RegistrationStatus status,
+            Role role,
+            Long approvedByTelegramUserId
+    );
+
     Optional<UserAccount> findFirstByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
             RegistrationStatus status,
             Role role,
@@ -37,6 +49,11 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
     );
 
     Optional<UserAccount> findFirstByStatusAndRoleOrderByCreatedAtAsc(
+            RegistrationStatus status,
+            Role role
+    );
+
+    List<UserAccount> findByStatusAndRoleOrderByCreatedAtAsc(
             RegistrationStatus status,
             Role role
     );

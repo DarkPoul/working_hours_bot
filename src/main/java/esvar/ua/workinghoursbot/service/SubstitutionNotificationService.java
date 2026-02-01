@@ -9,7 +9,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,9 +35,24 @@ public class SubstitutionNotificationService {
 
     public List<BotApiMethod<?>> notifySeniorAboutRequest(SubstitutionRequest request) {
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        Optional<UserAccount> seniorOptional = substitutionService.findSeniorForRequest(request.getLocation());
-        if (seniorOptional.isPresent()) {
-            UserAccount senior = seniorOptional.get();
+        Long tmTelegramUserId = request.getLocation() != null ? request.getLocation().getTmUserId() : null;
+        log.info("Searching senior for substitution request. requestId={}, locationId={}, tmTelegramUserId={}, criteria=locationId+role+status",
+                request.getId(),
+                request.getLocation() != null ? request.getLocation().getId() : null,
+                tmTelegramUserId);
+        SubstitutionService.SeniorLookupResult lookup = substitutionService.findSeniorForRequestWithDiagnostics(
+                request.getLocation(),
+                tmTelegramUserId
+        );
+        log.info("Senior search result. requestId={}, locationId={}, locationMatches={}, tmApproverMatches={}, globalMatches={}, stage={}",
+                request.getId(),
+                request.getLocation() != null ? request.getLocation().getId() : null,
+                lookup.locationMatches(),
+                lookup.tmApproverMatches(),
+                lookup.globalMatches(),
+                lookup.stage());
+        if (lookup.senior().isPresent()) {
+            UserAccount senior = lookup.senior().get();
             SendMessage message = notificationService.sendMessage(
                     senior.getTelegramChatId(),
                     buildSeniorRequestText(request),
@@ -46,7 +60,13 @@ public class SubstitutionNotificationService {
             );
             actions.add(message);
         } else {
-            log.warn("No seniors found for TM/location {}. requestId={}", request.getLocation().getId(), request.getId());
+            log.warn("No seniors found for substitution request. requestId={}, locationId={}, tmTelegramUserId={}, locationMatches={}, tmApproverMatches={}, globalMatches={}",
+                    request.getId(),
+                    request.getLocation() != null ? request.getLocation().getId() : null,
+                    tmTelegramUserId,
+                    lookup.locationMatches(),
+                    lookup.tmApproverMatches(),
+                    lookup.globalMatches());
             actions.add(notificationService.sendMessage(
                     request.getRequester().getTelegramChatId(),
                     "⚠️ Немає старшого продавця для вашого ТМ. Зверніться до адміністратора.",
