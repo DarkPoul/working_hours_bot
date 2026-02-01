@@ -2,6 +2,7 @@ package esvar.ua.workinghoursbot.service;
 
 import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
+import esvar.ua.workinghoursbot.domain.Role;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.repository.UserAccountRepository;
 import java.time.Instant;
@@ -26,10 +27,27 @@ public class RegistrationRequestService {
         );
     }
 
+    public List<UserAccount> findPendingByTmIdAndRole(UUID tmUserId, Role role) {
+        return userAccountRepository.findByStatusAndRoleAndLocationManagedByTmOrderByCreatedAtAsc(
+                RegistrationStatus.PENDING_APPROVAL,
+                role,
+                tmUserId
+        );
+    }
+
     public Optional<UserAccount> findPendingByIdAndTmId(UUID id, UUID tmUserId) {
         return userAccountRepository.findByIdAndStatusAndLocationManagedByTm(
                 id,
                 RegistrationStatus.PENDING_APPROVAL,
+                tmUserId
+        );
+    }
+
+    public Optional<UserAccount> findPendingByIdAndTmIdAndRole(UUID id, UUID tmUserId, Role role) {
+        return userAccountRepository.findByIdAndStatusAndRoleAndLocationManagedByTm(
+                id,
+                RegistrationStatus.PENDING_APPROVAL,
+                role,
                 tmUserId
         );
     }

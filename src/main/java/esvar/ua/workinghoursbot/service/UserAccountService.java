@@ -8,6 +8,7 @@ import esvar.ua.workinghoursbot.repository.UserAccountRepository;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,14 @@ public class UserAccountService {
                 )
                 .map(user -> "Старший продавець: " + user.getLastName())
                 .orElse(null);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<UserAccount> findActiveTmByManagedLocation(UUID locationId) {
+        if (locationId == null) {
+            return Optional.empty();
+        }
+        return userAccountRepository.findActiveTmByManagedLocation(locationId);
     }
 
     @Transactional
