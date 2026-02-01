@@ -370,6 +370,29 @@ public class SubstitutionService {
         );
     }
 
+    public Optional<UserAccount> findSeniorForRequest(Location location) {
+        if (location == null) {
+            return Optional.empty();
+        }
+        Long tmUserId = location.getTmUserId();
+        if (tmUserId != null) {
+            Optional<UserAccount> senior = userAccountRepository
+                    .findFirstByStatusAndRoleAndLocation_TmUserIdOrderByCreatedAtAsc(
+                            RegistrationStatus.APPROVED,
+                            Role.SENIOR_SELLER,
+                            tmUserId
+                    );
+            if (senior.isPresent()) {
+                return senior;
+            }
+        }
+        return userAccountRepository.findFirstByStatusAndRoleAndLocation_IdOrderByCreatedAtAsc(
+                RegistrationStatus.APPROVED,
+                Role.SENIOR_SELLER,
+                location.getId()
+        );
+    }
+
     public List<SubstitutionRequestCandidate> findNotifiedCandidates(UUID requestId) {
         return candidateRepository.findByRequest_IdAndState(requestId, SubstitutionCandidateState.NOTIFIED);
     }
