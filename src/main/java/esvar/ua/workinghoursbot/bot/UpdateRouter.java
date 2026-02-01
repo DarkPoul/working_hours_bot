@@ -1,6 +1,11 @@
 package esvar.ua.workinghoursbot.bot;
 
+import esvar.ua.workinghoursbot.domain.RegistrationStatus;
+import esvar.ua.workinghoursbot.domain.Role;
+import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.service.RegistrationService;
+import esvar.ua.workinghoursbot.service.TmMenuService;
+import esvar.ua.workinghoursbot.service.UserAccountService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -14,6 +19,8 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 public class UpdateRouter {
 
     private final RegistrationService registrationService;
+    private final UserAccountService userAccountService;
+    private final TmMenuService tmMenuService;
 
     public BotResponse route(Update update) {
         if (update == null) {
@@ -44,14 +51,14 @@ public class UpdateRouter {
         }
 
         if ("/start".equalsIgnoreCase(text)) {
-            return registrationService.startRegistration(telegramUserId, chatId);
+            return handleStartCommand(telegramUserId, chatId);
         }
 
         if ("/cancel".equalsIgnoreCase(text)) {
             return registrationService.cancelRegistration(telegramUserId, chatId);
         }
 
-        return registrationService.handleText(telegramUserId, chatId, text);
+        return handleText(telegramUserId, chatId, text);
     }
 
     private BotResponse handleCallback(CallbackQuery callbackQuery) {
@@ -61,5 +68,25 @@ public class UpdateRouter {
 
         log.info("Ignoring callback query for user {}", callbackQuery.getFrom().getId());
         return BotResponse.empty();
+    }
+
+    private BotResponse handleStartCommand(Long telegramUserId, Long chatId) {
+        return userAccountService.findByTelegramUserId(telegramUserId)
+                .filter(account -> account.getStatus() == RegistrationStatus.APPROVED)
+                .map(account -> {
+                    if (account.getRole() == Role.TM) {
+                        return tmMenuService.showMainMenu(telegramUserId, chatId);
+                    }
+                    return registrationService.startRegistration(telegramUserId, chatId);
+                })
+                .orElseGet(() -> registrationService.startRegistration(telegramUserId, chatId));
+    }
+
+    private BotResponse handleText(Long telegramUserId, Long chatId, String text) {
+        UserAccount account = userAccountService.findByTelegramUserId(telegramUserId).orElse(null);
+        if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() == Role.TM) {
+            return tmMenuService.handleText(telegramUserId, chatId, text);
+        }
+        return registrationService.handleText(telegramUserId, chatId, text);
     }
 }

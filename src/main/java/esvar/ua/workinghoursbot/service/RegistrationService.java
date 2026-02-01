@@ -261,7 +261,7 @@ public class RegistrationService {
         if (account.getStatus() == RegistrationStatus.APPROVED) {
             SendMessage response = buildMessage(chatId,
                     "Ви вже зареєстровані. Роль: %s".formatted(formatRole(account.getRole())));
-            response.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
+            response.setReplyMarkup(resolveMainMenuKeyboard(account));
             return BotResponse.of(response);
         }
 
@@ -300,7 +300,7 @@ public class RegistrationService {
             );
 
             SendMessage response = buildMessage(chatId, text);
-            response.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
+            response.setReplyMarkup(resolveMainMenuKeyboard(account));
             return BotResponse.of(response);
         }
         if (account.getStatus() == RegistrationStatus.REJECTED) {
@@ -328,8 +328,15 @@ public class RegistrationService {
                 "Ви вже зареєстровані. Статус: %s Роль: %s".formatted(
                         formatStatus(account.getStatus()),
                         formatRole(account.getRole())));
-        response.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
+        response.setReplyMarkup(resolveMainMenuKeyboard(account));
         return BotResponse.of(response);
+    }
+
+    private ReplyKeyboardMarkup resolveMainMenuKeyboard(UserAccount account) {
+        if (account.getRole() == Role.TM) {
+            return KeyboardFactory.tmMainMenuKeyboard();
+        }
+        return KeyboardFactory.mainMenuKeyboard();
     }
 
     private BotResponse restartRegistration(Long telegramUserId, Long chatId) {
