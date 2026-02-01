@@ -4,6 +4,7 @@ import esvar.ua.workinghoursbot.domain.Location;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -57,4 +58,16 @@ public interface LocationRepository extends JpaRepository<Location, UUID> {
             where account.id = :accountId
             """)
     Optional<Boolean> findScheduleEditEnabledByAccount_Id(@Param("accountId") UUID id);
+
+    @Modifying
+    @Query("""
+            update Location l
+            set l.scheduleEditEnabled = :enabled
+            where l.id in (
+                select ml.id from UserAccount tm
+                join tm.managedLocations ml
+                where tm.id = :tmId
+            )
+            """)
+    int updateScheduleEditEnabledByManagedTmId(@Param("tmId") UUID tmId, @Param("enabled") boolean enabled);
 }

@@ -176,8 +176,9 @@ public final class KeyboardFactory {
 
     public static ReplyKeyboardMarkup tmScheduleLocationKeyboard(boolean editEnabled) {
         KeyboardRow row1 = singleButtonRow(editEnabled ? "Заборонити внесення графіку" : "Дозволити внесення графіку");
-        KeyboardRow row2 = singleButtonRow("Назад");
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2));
+        KeyboardRow row2 = singleButtonRow(editEnabled ? "Заборонити для всіх локацій" : "Дозволити для всіх локацій");
+        KeyboardRow row3 = singleButtonRow("Назад");
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;
