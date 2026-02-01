@@ -1,6 +1,7 @@
 package esvar.ua.workinghoursbot.repository;
 
 import esvar.ua.workinghoursbot.domain.ScheduleDay;
+import esvar.ua.workinghoursbot.domain.ScheduleStatus;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -21,4 +22,15 @@ public interface ScheduleDayRepository extends JpaRepository<ScheduleDay, UUID> 
             LocalDate start,
             LocalDate end
     );
+
+    boolean existsByTelegramUserIdAndDateAndStatus(Long telegramUserId, LocalDate date, ScheduleStatus status);
+
+    boolean existsByTelegramUserIdAndLocationIdAndDateAndStatus(
+            Long telegramUserId,
+            UUID locationId,
+            LocalDate date,
+            ScheduleStatus status
+    );
+
+    long deleteByTelegramUserIdAndLocationIdAndDate(Long telegramUserId, UUID locationId, LocalDate date);
 }

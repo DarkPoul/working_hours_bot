@@ -1,0 +1,621 @@
+package esvar.ua.workinghoursbot.service;
+
+import esvar.ua.workinghoursbot.bot.BotResponse;
+import esvar.ua.workinghoursbot.bot.InlineKeyboardFactory;
+import esvar.ua.workinghoursbot.domain.Location;
+import esvar.ua.workinghoursbot.domain.RegistrationStatus;
+import esvar.ua.workinghoursbot.domain.Role;
+import esvar.ua.workinghoursbot.domain.SubstitutionCandidateState;
+import esvar.ua.workinghoursbot.domain.SubstitutionRequest;
+import esvar.ua.workinghoursbot.domain.SubstitutionRequestCandidate;
+import esvar.ua.workinghoursbot.domain.SubstitutionRequestScope;
+import esvar.ua.workinghoursbot.domain.UserAccount;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
+import org.telegram.telegrambots.meta.api.objects.Message;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class SubstitutionInteractionHandler {
+
+    private static final String COMMAND_SUBSTITUTION = "🔁 Підміна";
+
+    private static final String CB_SUB_CREATE = "SUB_REQ_CREATE:";
+    private static final String CB_SUB_CREATE_URGENT = "SUB_REQ_CREATE_URGENT_TODAY";
+    private static final String CB_SUB_CONFIRM = "SUB_REQ_CONFIRM:";
+    private static final String CB_SUB_CANCEL = "SUB_REQ_CANCEL_CREATE";
+
+    private static final String CB_SENIOR_OPEN = "SENIOR_SUB_OPEN:";
+    private static final String CB_SENIOR_TAKE = "SENIOR_SUB_TAKE:";
+    private static final String CB_SENIOR_FIND = "SENIOR_SUB_FIND:";
+    private static final String CB_SENIOR_SCOPE = "SENIOR_SUB_SCOPE:";
+    private static final String CB_SENIOR_NOTIFY_ALL = "SENIOR_SUB_NOTIFY_ALL:";
+    private static final String CB_SENIOR_PICK_LIST = "SENIOR_SUB_PICK_LIST:";
+    private static final String CB_SENIOR_PICK = "SENIOR_SUB_PICK:";
+    private static final String CB_SENIOR_REJECT = "SENIOR_SUB_REJECT:";
+    private static final String CB_SENIOR_REJECT_REASON = "SENIOR_SUB_REJECT_REASON:";
+
+    private static final String CB_CANDIDATE_ACCEPT = "CAND_SUB_ACCEPT:";
+    private static final String CB_CANDIDATE_DECLINE = "CAND_SUB_DECLINE:";
+
+    private static final String CB_NAV_BACK = "NAV_BACK:";
+
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+    private static final DateTimeFormatter DATE_SHORT_FORMAT = DateTimeFormatter.ofPattern("dd.MM");
+    private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd.MM HH:mm");
+
+    private final SubstitutionService substitutionService;
+    private final SubstitutionDraftStore substitutionDraftStore;
+    private final TelegramNotificationService notificationService;
+    private final UserAccountService userAccountService;
+
+    public BotResponse handleMessage(Long telegramUserId, Long chatId, String text) {
+        if (!COMMAND_SUBSTITUTION.equalsIgnoreCase(text)) {
+            return BotResponse.empty();
+        }
+        Optional<UserAccount> accountOptional = userAccountService.findByTelegramUserId(telegramUserId);
+        if (accountOptional.isEmpty()) {
+            return BotResponse.empty();
+        }
+        UserAccount account = accountOptional.get();
+        if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() == Role.TM) {
+            return BotResponse.empty();
+        }
+        DateSelectionView view = buildDateSelection(telegramUserId);
+        return BotResponse.of(notificationService.sendMessage(chatId, view.text(), view.keyboard()));
+    }
+
+    public BotResponse handleCallback(CallbackQuery callbackQuery) {
+        if (callbackQuery == null || callbackQuery.getFrom() == null) {
+            return BotResponse.empty();
+        }
+        String data = callbackQuery.getData();
+        if (data == null || data.isBlank()) {
+            return BotResponse.empty();
+        }
+
+        try {
+            if (data.startsWith(CB_SUB_CREATE)) {
+                return handleCreateSelection(callbackQuery);
+            }
+            if (CB_SUB_CREATE_URGENT.equals(data)) {
+                return handleUrgentSelection(callbackQuery);
+            }
+            if (data.startsWith(CB_SUB_CONFIRM)) {
+                return handleConfirm(callbackQuery);
+            }
+            if (CB_SUB_CANCEL.equals(data)) {
+                return handleCancelDraft(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_OPEN)) {
+                return handleSeniorOpen(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_TAKE)) {
+                return handleSeniorTake(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_FIND)) {
+                return handleSeniorFind(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_SCOPE)) {
+                return handleSeniorScope(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_NOTIFY_ALL)) {
+                return handleNotifyAll(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_PICK_LIST)) {
+                return handlePickList(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_PICK)) {
+                return handlePickCandidate(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_REJECT)) {
+                return handleSeniorReject(callbackQuery);
+            }
+            if (data.startsWith(CB_SENIOR_REJECT_REASON)) {
+                return handleRejectReason(callbackQuery);
+            }
+            if (data.startsWith(CB_CANDIDATE_ACCEPT)) {
+                return handleCandidateAccept(callbackQuery);
+            }
+            if (data.startsWith(CB_CANDIDATE_DECLINE)) {
+                return handleCandidateDecline(callbackQuery);
+            }
+            if (data.startsWith(CB_NAV_BACK)) {
+                return handleNavBack(callbackQuery);
+            }
+        } catch (IllegalStateException ex) {
+            return BotResponse.of(notificationService.answerCallbackQuery(callbackQuery.getId(), ex.getMessage()));
+        }
+
+        return BotResponse.empty();
+    }
+
+    private DateSelectionView buildDateSelection(Long telegramUserId) {
+        List<LocalDate> dates = substitutionService.getPlannedWorkDates(telegramUserId);
+        if (dates.isEmpty()) {
+            return new DateSelectionView("Немає запланованих робочих днів для підміни.", null);
+        }
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        if (dates.contains(today)) {
+            rows.add(List.of(InlineKeyboardFactory.button(
+                    "🔥 ТЕРМІНОВО: сьогодні (" + DATE_SHORT_FORMAT.format(today) + ")",
+                    CB_SUB_CREATE_URGENT
+            )));
+        }
+        for (LocalDate date : dates) {
+            rows.add(List.of(InlineKeyboardFactory.button(
+                    DATE_SHORT_FORMAT.format(date),
+                    CB_SUB_CREATE + date
+            )));
+        }
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(rows);
+        return new DateSelectionView("🔁 Потрібна підміна\nОберіть дату, на яку потрібна підміна:", keyboard);
+    }
+
+    private BotResponse handleCreateSelection(CallbackQuery callbackQuery) {
+        Long telegramUserId = callbackQuery.getFrom().getId();
+        LocalDate date = LocalDate.parse(callbackQuery.getData().substring(CB_SUB_CREATE.length()));
+        return BotResponse.of(renderConfirmation(callbackQuery, telegramUserId, date, false));
+    }
+
+    private BotResponse handleUrgentSelection(CallbackQuery callbackQuery) {
+        Long telegramUserId = callbackQuery.getFrom().getId();
+        LocalDate today = LocalDate.now();
+        return BotResponse.of(renderConfirmation(callbackQuery, telegramUserId, today, true));
+    }
+
+    private BotApiMethod<?> renderConfirmation(CallbackQuery callbackQuery,
+                                               Long telegramUserId,
+                                               LocalDate date,
+                                               boolean urgent) {
+        UserAccount account = userAccountService.findByTelegramUserId(telegramUserId)
+                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
+        Location location = account.getLocation();
+        if (location == null) {
+            return notificationService.answerCallbackQuery(callbackQuery.getId(), "Спочатку оберіть локацію.");
+        }
+        SubstitutionDraftStore.Draft draft = substitutionDraftStore.createDraft(telegramUserId, date, urgent);
+        String text = """
+                ⚠️ Ви створюєте запит на підміну
+                📍 Локація: %s
+                📅 Дата: %s
+                Підтвердити?
+                """.formatted(location.getName(), DATE_FORMAT.format(date));
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("✅ Підтвердити", CB_SUB_CONFIRM + CallbackIdEncoder.encode(draft.getId())),
+                        InlineKeyboardFactory.button("❌ Скасувати", CB_SUB_CANCEL)
+                )
+        ));
+        return editMessage(callbackQuery.getMessage(), text, keyboard);
+    }
+
+    private BotResponse handleConfirm(CallbackQuery callbackQuery) {
+        Long telegramUserId = callbackQuery.getFrom().getId();
+        UUID draftId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SUB_CONFIRM.length()));
+        Optional<SubstitutionDraftStore.Draft> draftOptional = substitutionDraftStore.findDraft(telegramUserId, draftId);
+        if (draftOptional.isEmpty()) {
+            return BotResponse.of(notificationService.answerCallbackQuery(
+                    callbackQuery.getId(),
+                    "Сесію завершено, почніть знову."
+            ));
+        }
+        SubstitutionDraftStore.Draft draft = draftOptional.get();
+        SubstitutionRequest request = substitutionService.createRequest(
+                telegramUserId,
+                draft.getDate(),
+                draft.isUrgent(),
+                draft.getId()
+        );
+        substitutionDraftStore.clearDraft(telegramUserId);
+
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(
+                callbackQuery.getMessage(),
+                "✅ Запит на підміну створено. Очікуйте рішення старшого продавця.",
+                null
+        ));
+        actions.addAll(notifySeniors(request));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleCancelDraft(CallbackQuery callbackQuery) {
+        substitutionDraftStore.clearDraft(callbackQuery.getFrom().getId());
+        DateSelectionView view = buildDateSelection(callbackQuery.getFrom().getId());
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), view.text(), view.keyboard()));
+    }
+
+    private BotResponse handleSeniorOpen(CallbackQuery callbackQuery) {
+        requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_OPEN.length()));
+        SubstitutionRequest request = substitutionService.getRequest(requestId);
+        return BotResponse.of(renderSeniorRequestMenu(callbackQuery.getMessage(), request));
+    }
+
+    private BotResponse handleSeniorTake(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_TAKE.length()));
+        UserAccount senior = requireSenior(callbackQuery);
+        SubstitutionRequest request = substitutionService.approveBySenior(requestId, senior.getTelegramUserId());
+
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "✅ Ви взяли підміну.", null));
+        actions.addAll(notifyRequesterAndSeniors(request));
+        actions.addAll(notifyOtherCandidates(request));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleSeniorFind(CallbackQuery callbackQuery) {
+        requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_FIND.length()));
+        return BotResponse.of(renderScopeMenu(callbackQuery.getMessage(), requestId));
+    }
+
+    private BotResponse handleSeniorScope(CallbackQuery callbackQuery) {
+        String[] parts = callbackQuery.getData().substring(CB_SENIOR_SCOPE.length()).split(":");
+        if (parts.length != 2) {
+            return BotResponse.empty();
+        }
+        UserAccount senior = requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(parts[0]);
+        SubstitutionRequestScope scope = SubstitutionRequestScope.valueOf(parts[1]);
+        SubstitutionRequest request = substitutionService.setScope(requestId, scope);
+        List<UserAccount> candidates = substitutionService.findCandidates(requestId, scope, senior);
+        String text = renderCandidatesSummary(request, candidates);
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("📣 Надіслати всім", CB_SENIOR_NOTIFY_ALL + CallbackIdEncoder.encode(requestId)),
+                        InlineKeyboardFactory.button("👤 Обрати зі списку", CB_SENIOR_PICK_LIST + CallbackIdEncoder.encode(requestId))
+                ),
+                List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_SCOPE:" + CallbackIdEncoder.encode(requestId)))
+        ));
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), text, keyboard));
+    }
+
+    private BotResponse handleNotifyAll(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_NOTIFY_ALL.length()));
+        UserAccount senior = requireSenior(callbackQuery);
+        SubstitutionRequest request = substitutionService.getRequest(requestId);
+        List<UserAccount> candidates = substitutionService.notifyAllCandidates(requestId, request.getScope(), senior);
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "📣 Пропозицію надіслано кандидатам.", null));
+        actions.addAll(buildCandidateOffers(request, candidates));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handlePickList(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_PICK_LIST.length()));
+        UserAccount senior = requireSenior(callbackQuery);
+        SubstitutionRequest request = substitutionService.getRequest(requestId);
+        List<UserAccount> candidates = substitutionService.findCandidates(requestId, request.getScope(), senior);
+        InlineKeyboardMarkup keyboard = buildCandidatePickKeyboard(requestId, candidates);
+        String text = renderCandidatesSummary(request, candidates);
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), text, keyboard));
+    }
+
+    private BotResponse handlePickCandidate(CallbackQuery callbackQuery) {
+        String[] parts = callbackQuery.getData().substring(CB_SENIOR_PICK.length()).split(":");
+        if (parts.length != 2) {
+            return BotResponse.empty();
+        }
+        UserAccount senior = requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(parts[0]);
+        UUID candidateId = CallbackIdEncoder.decode(parts[1]);
+        SubstitutionRequest request = substitutionService.getRequest(requestId);
+        UserAccount candidate = substitutionService.notifySingleCandidate(requestId, candidateId, request.getScope(), senior);
+
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "✅ Пропозицію надіслано кандидату.", null));
+        actions.addAll(buildCandidateOffers(request, List.of(candidate)));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleSeniorReject(CallbackQuery callbackQuery) {
+        requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_REJECT.length()));
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("❌ Немає заміни", CB_SENIOR_REJECT_REASON + CallbackIdEncoder.encode(requestId) + ":NO_REPL"),
+                        InlineKeyboardFactory.button("❌ Запізно створений запит", CB_SENIOR_REJECT_REASON + CallbackIdEncoder.encode(requestId) + ":TOO_LATE")
+                ),
+                List.of(
+                        InlineKeyboardFactory.button("❌ Інша причина", CB_SENIOR_REJECT_REASON + CallbackIdEncoder.encode(requestId) + ":OTHER")
+                ),
+                List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_SCOPE:" + CallbackIdEncoder.encode(requestId)))
+        ));
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), "Оберіть причину відхилення:", keyboard));
+    }
+
+    private BotResponse handleRejectReason(CallbackQuery callbackQuery) {
+        String[] parts = callbackQuery.getData().substring(CB_SENIOR_REJECT_REASON.length()).split(":");
+        if (parts.length != 2) {
+            return BotResponse.empty();
+        }
+        UserAccount senior = requireSenior(callbackQuery);
+        UUID requestId = CallbackIdEncoder.decode(parts[0]);
+        String reasonKey = parts[1];
+        String reason = switch (reasonKey) {
+            case "NO_REPL" -> "Немає заміни";
+            case "TOO_LATE" -> "Запізно створений запит";
+            default -> "Інша причина";
+        };
+        SubstitutionRequest request = substitutionService.rejectRequest(requestId, senior.getTelegramUserId(), reason);
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(callbackQuery.getMessage(), "❌ Запит відхилено. Причина: " + reason, null));
+        actions.add(notificationService.sendMessage(
+                request.getRequester().getTelegramChatId(),
+                "❌ Ваш запит на підміну відхилено. Причина: " + reason,
+                null
+        ));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleCandidateAccept(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_CANDIDATE_ACCEPT.length()));
+        SubstitutionService.AcceptOfferResult result = substitutionService.acceptOffer(
+                requestId,
+                callbackQuery.getFrom().getId()
+        );
+
+        if (result.getStatus() != SubstitutionService.AcceptOfferResult.Status.APPROVED) {
+            List<BotApiMethod<?>> actions = new ArrayList<>();
+            actions.add(notificationService.answerCallbackQuery(callbackQuery.getId(), "Підміну вже взяли."));
+            actions.add(editMessage(
+                    callbackQuery.getMessage(),
+                    "✅ Підміну вже взяли, дякуємо.",
+                    null
+            ));
+            return new BotResponse(actions);
+        }
+
+        SubstitutionRequest request = result.getRequest();
+
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(editMessage(
+                callbackQuery.getMessage(),
+                "✅ Дякуємо! Ви взяли підміну на " + DATE_FORMAT.format(request.getRequestDate()) + ".",
+                null
+        ));
+        actions.addAll(notifyRequesterAndSeniors(request));
+        actions.addAll(notifyOtherCandidates(result.getOtherCandidates()));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleCandidateDecline(CallbackQuery callbackQuery) {
+        UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_CANDIDATE_DECLINE.length()));
+        substitutionService.declineOffer(requestId, callbackQuery.getFrom().getId());
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(notificationService.answerCallbackQuery(callbackQuery.getId(), "Дякуємо за відповідь."));
+        actions.add(editMessage(callbackQuery.getMessage(), "Ви відмовилися від підміни.", null));
+        return new BotResponse(actions);
+    }
+
+    private BotResponse handleNavBack(CallbackQuery callbackQuery) {
+        String context = callbackQuery.getData().substring(CB_NAV_BACK.length());
+        if (context.startsWith("SUB_CREATE")) {
+            DateSelectionView view = buildDateSelection(callbackQuery.getFrom().getId());
+            return BotResponse.of(editMessage(callbackQuery.getMessage(), view.text(), view.keyboard()));
+        }
+        if (context.startsWith("SENIOR_SCOPE:")) {
+            UUID requestId = CallbackIdEncoder.decode(context.substring("SENIOR_SCOPE:".length()));
+            SubstitutionRequest request = substitutionService.getRequest(requestId);
+            return BotResponse.of(renderSeniorRequestMenu(callbackQuery.getMessage(), request));
+        }
+        if (context.startsWith("SENIOR_PICK:")) {
+            UUID requestId = CallbackIdEncoder.decode(context.substring("SENIOR_PICK:".length()));
+            return BotResponse.of(renderScopeMenu(callbackQuery.getMessage(), requestId));
+        }
+        return BotResponse.empty();
+    }
+
+    private EditMessageText renderSeniorRequestMenu(Message message, SubstitutionRequest request) {
+        String text = """
+                🔁 Запит на підміну
+                👤 Продавець: %s
+                📍 Локація: %s
+                📅 Дата: %s
+                🕒 Створено: %s
+                """.formatted(
+                request.getRequester().getLastName(),
+                request.getLocation().getName(),
+                DATE_FORMAT.format(request.getRequestDate()),
+                DATE_TIME_FORMAT.format(request.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDateTime())
+        );
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("✅ Я візьму зміну", CB_SENIOR_TAKE + CallbackIdEncoder.encode(request.getId())),
+                        InlineKeyboardFactory.button("👥 Знайти заміну", CB_SENIOR_FIND + CallbackIdEncoder.encode(request.getId()))
+                ),
+                List.of(InlineKeyboardFactory.button("❌ Відхилити", CB_SENIOR_REJECT + CallbackIdEncoder.encode(request.getId())))
+        ));
+        return editMessage(message, text, keyboard);
+    }
+
+    private EditMessageText renderScopeMenu(Message message, UUID requestId) {
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("📍 По локації", CB_SENIOR_SCOPE + CallbackIdEncoder.encode(requestId) + ":LOCATION"),
+                        InlineKeyboardFactory.button("👔 По ТМ", CB_SENIOR_SCOPE + CallbackIdEncoder.encode(requestId) + ":TM")
+                ),
+                List.of(InlineKeyboardFactory.button("🌍 Всі", CB_SENIOR_SCOPE + CallbackIdEncoder.encode(requestId) + ":ALL")),
+                List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_SCOPE:" + CallbackIdEncoder.encode(requestId)))
+        ));
+        return editMessage(message, "Де шукати заміну?", keyboard);
+    }
+
+    private InlineKeyboardMarkup buildCandidatePickKeyboard(UUID requestId, List<UserAccount> candidates) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (UserAccount candidate : candidates) {
+            rows.add(List.of(InlineKeyboardFactory.button(
+                    candidate.getLastName(),
+                    CB_SENIOR_PICK + CallbackIdEncoder.encode(requestId) + ":" + CallbackIdEncoder.encode(candidate.getId())
+            )));
+        }
+        rows.add(List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_PICK:" + CallbackIdEncoder.encode(requestId))));
+        return InlineKeyboardFactory.rows(rows);
+    }
+
+    private String renderCandidatesSummary(SubstitutionRequest request, List<UserAccount> candidates) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("🔎 Знайдено вільних на ")
+                .append(DATE_FORMAT.format(request.getRequestDate()))
+                .append(" — ")
+                .append(candidates.size());
+        if (!candidates.isEmpty()) {
+            int index = 1;
+            for (UserAccount candidate : candidates) {
+                builder.append("\n").append(index++).append(") ").append(candidate.getLastName());
+            }
+        }
+        return builder.toString();
+    }
+
+    private List<BotApiMethod<?>> buildCandidateOffers(SubstitutionRequest request, List<UserAccount> candidates) {
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("✅ Так, можу", CB_CANDIDATE_ACCEPT + CallbackIdEncoder.encode(request.getId())),
+                        InlineKeyboardFactory.button("❌ Ні", CB_CANDIDATE_DECLINE + CallbackIdEncoder.encode(request.getId()))
+                )
+        ));
+        for (UserAccount candidate : candidates) {
+            String text = """
+                    🔁 Пропозиція підміни
+                    📍 Локація: %s
+                    📅 Дата: %s
+                    Чи готові ви вийти?
+                    """.formatted(request.getLocation().getName(), DATE_FORMAT.format(request.getRequestDate()));
+            actions.add(notificationService.candidateOfferMessage(
+                    request.getId(),
+                    candidate.getTelegramChatId(),
+                    text,
+                    keyboard
+            ));
+        }
+        return actions;
+    }
+
+    private List<BotApiMethod<?>> notifySeniors(SubstitutionRequest request) {
+        List<UserAccount> seniors = substitutionService.findSeniorsForLocation(request.getLocation().getId());
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        for (UserAccount senior : seniors) {
+            SendMessage message = notificationService.sendMessage(
+                    senior.getTelegramChatId(),
+                    buildSeniorRequestText(request),
+                    buildSeniorInlineKeyboard(request.getId())
+            );
+            actions.add(message);
+        }
+        if (seniors.isEmpty()) {
+            log.warn("No seniors found for location {}. requestId={}", request.getLocation().getId(), request.getId());
+        }
+        return actions;
+    }
+
+    private List<BotApiMethod<?>> notifyRequesterAndSeniors(SubstitutionRequest request) {
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        UserAccount replacement = request.getReplacementUser();
+        if (replacement != null) {
+            actions.add(notificationService.sendMessage(
+                    request.getRequester().getTelegramChatId(),
+                    "✅ Підміну знайдено: " + replacement.getLastName() + ". Дата " + DATE_FORMAT.format(request.getRequestDate()) + ".",
+                    null
+            ));
+            for (UserAccount senior : substitutionService.findSeniorsForLocation(request.getLocation().getId())) {
+                actions.add(notificationService.sendMessage(
+                        senior.getTelegramChatId(),
+                        "✅ Підміну підтверджено: " + replacement.getLastName() + " на " + DATE_FORMAT.format(request.getRequestDate()) + ".",
+                        null
+                ));
+            }
+        }
+        return actions;
+    }
+
+    private List<BotApiMethod<?>> notifyOtherCandidates(SubstitutionRequest request) {
+        List<SubstitutionRequestCandidate> candidates = substitutionService.findExpiredCandidates(request.getId());
+        return notifyOtherCandidates(candidates);
+    }
+
+    private List<BotApiMethod<?>> notifyOtherCandidates(List<SubstitutionRequestCandidate> candidates) {
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        for (SubstitutionRequestCandidate candidate : candidates) {
+            if (candidate.getState() != SubstitutionCandidateState.EXPIRED
+                    && candidate.getState() != SubstitutionCandidateState.DECLINED) {
+                continue;
+            }
+            Long chatId = candidate.getNotifiedChatId();
+            if (chatId == null) {
+                continue;
+            }
+            if (candidate.getNotifiedMessageId() != null) {
+                actions.add(notificationService.editMessage(
+                        chatId,
+                        candidate.getNotifiedMessageId().intValue(),
+                        "✅ Підміну вже взяли, дякуємо.",
+                        null
+                ));
+            } else {
+                actions.add(notificationService.sendMessage(chatId, "✅ Підміну вже взяли, дякуємо.", null));
+            }
+        }
+        return actions;
+    }
+
+    private String buildSeniorRequestText(SubstitutionRequest request) {
+        return """
+                🔁 Запит на підміну
+                👤 Продавець: %s
+                📍 Локація: %s
+                📅 Дата: %s
+                🕒 Створено: %s
+                """.formatted(
+                request.getRequester().getLastName(),
+                request.getLocation().getName(),
+                DATE_FORMAT.format(request.getRequestDate()),
+                DATE_TIME_FORMAT.format(request.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDateTime())
+        );
+    }
+
+    private InlineKeyboardMarkup buildSeniorInlineKeyboard(UUID requestId) {
+        return InlineKeyboardFactory.rows(List.of(
+                List.of(
+                        InlineKeyboardFactory.button("✅ Я візьму зміну", CB_SENIOR_TAKE + CallbackIdEncoder.encode(requestId)),
+                        InlineKeyboardFactory.button("👥 Знайти заміну", CB_SENIOR_FIND + CallbackIdEncoder.encode(requestId))
+                ),
+                List.of(InlineKeyboardFactory.button("❌ Відхилити", CB_SENIOR_REJECT + CallbackIdEncoder.encode(requestId)))
+        ));
+    }
+
+    private EditMessageText editMessage(Message message, String text, InlineKeyboardMarkup keyboard) {
+        return notificationService.editMessage(message.getChatId(), message.getMessageId(), text, keyboard);
+    }
+
+    private UserAccount requireSenior(CallbackQuery callbackQuery) {
+        UserAccount account = userAccountService.findByTelegramUserId(callbackQuery.getFrom().getId())
+                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
+        if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() != Role.SENIOR_SELLER) {
+            throw new IllegalStateException("Недостатньо прав.");
+        }
+        return account;
+    }
+
+    private record DateSelectionView(String text, InlineKeyboardMarkup keyboard) {
+    }
+}
