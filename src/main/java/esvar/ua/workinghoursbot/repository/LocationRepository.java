@@ -45,7 +45,11 @@ public interface LocationRepository extends JpaRepository<Location, UUID> {
 
     boolean existsByCode(String code);
 
-    Optional<Boolean> findScheduleEditEnabledById(UUID id);
+    @Query("""
+            select l.scheduleEditEnabled from Location l
+            where l.id = :id
+            """)
+    Optional<Boolean> findScheduleEditEnabledById(@Param("id") UUID id);
 
     @Query("""
             select l.scheduleEditEnabled from UserAccount account
