@@ -15,7 +15,7 @@ public interface ScheduleDayRepository extends JpaRepository<ScheduleDay, UUID> 
             LocalDate end
     );
 
-    void deleteByTelegramUserIdAndLocationIdAndDateBetween(
+    long deleteByTelegramUserIdAndLocationIdAndDateBetween(
             Long telegramUserId,
             UUID locationId,
             LocalDate start,
