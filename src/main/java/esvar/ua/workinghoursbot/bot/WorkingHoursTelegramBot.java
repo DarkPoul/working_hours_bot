@@ -2,6 +2,7 @@ package esvar.ua.workinghoursbot.bot;
 
 import esvar.ua.workinghoursbot.config.BotProperties;
 import esvar.ua.workinghoursbot.service.ScheduleSessionStore;
+import esvar.ua.workinghoursbot.service.SubstitutionMenuSessionStore;
 import esvar.ua.workinghoursbot.service.SubstitutionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
     private final UpdateRouter updateRouter;
     private final ScheduleSessionStore scheduleSessionStore;
     private final SubstitutionService substitutionService;
+    private final SubstitutionMenuSessionStore substitutionMenuSessionStore;
 
     @Override
     public String getBotUsername() {
@@ -52,6 +54,13 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
             Message sent = execute(sendMessage);
             if (sent != null) {
                 scheduleSessionStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
+                if (action instanceof SubstitutionMenuMessage menuMessage) {
+                    substitutionMenuSessionStore.updateSession(
+                            menuMessage.getTelegramUserId(),
+                            sent.getChatId(),
+                            sent.getMessageId()
+                    );
+                }
                 if (action instanceof SubstitutionCandidateOfferMessage offerMessage) {
                     substitutionService.registerCandidateNotification(
                             offerMessage.getRequestId(),
@@ -84,15 +93,32 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
 
         log.error("Failed to execute bot action", ex);
         if (action instanceof EditMessageText editMessageText) {
-            SendMessage fallback = new SendMessage();
-            fallback.setChatId(editMessageText.getChatId());
-            fallback.setText(editMessageText.getText());
-            fallback.setParseMode(editMessageText.getParseMode());
-            fallback.setReplyMarkup(editMessageText.getReplyMarkup());
+            SendMessage fallback;
+            if (action instanceof SubstitutionMenuEditMessage menuEditMessage) {
+                SubstitutionMenuMessage menuFallback = new SubstitutionMenuMessage(menuEditMessage.getTelegramUserId());
+                menuFallback.setChatId(editMessageText.getChatId());
+                menuFallback.setText(editMessageText.getText());
+                menuFallback.setParseMode(editMessageText.getParseMode());
+                menuFallback.setReplyMarkup(editMessageText.getReplyMarkup());
+                fallback = menuFallback;
+            } else {
+                fallback = new SendMessage();
+                fallback.setChatId(editMessageText.getChatId());
+                fallback.setText(editMessageText.getText());
+                fallback.setParseMode(editMessageText.getParseMode());
+                fallback.setReplyMarkup(editMessageText.getReplyMarkup());
+            }
             try {
                 Message sent = execute(fallback);
                 if (sent != null) {
                     scheduleSessionStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
+                    if (fallback instanceof SubstitutionMenuMessage menuMessage) {
+                        substitutionMenuSessionStore.updateSession(
+                                menuMessage.getTelegramUserId(),
+                                sent.getChatId(),
+                                sent.getMessageId()
+                        );
+                    }
                 }
             } catch (TelegramApiException nested) {
                 log.error("Failed to execute fallback bot action", nested);

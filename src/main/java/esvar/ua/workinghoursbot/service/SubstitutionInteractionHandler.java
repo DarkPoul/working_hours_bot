@@ -10,7 +10,6 @@ import esvar.ua.workinghoursbot.domain.SubstitutionRequest;
 import esvar.ua.workinghoursbot.domain.SubstitutionRequestCandidate;
 import esvar.ua.workinghoursbot.domain.SubstitutionRequestScope;
 import esvar.ua.workinghoursbot.domain.UserAccount;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -23,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
@@ -42,6 +42,7 @@ public class SubstitutionInteractionHandler {
     private static final String CB_SUB_CREATE_URGENT = "SUB_REQ_CREATE_URGENT_TODAY";
     private static final String CB_SUB_CONFIRM = "SUB_REQ_CONFIRM:";
     private static final String CB_SUB_CANCEL = "SUB_REQ_CANCEL_CREATE";
+    private static final String CB_SUB_PAGE = "SUB_REQ_PAGE:";
 
     private static final String CB_SENIOR_OPEN = "SENIOR_SUB_OPEN:";
     private static final String CB_SENIOR_TAKE = "SENIOR_SUB_TAKE:";
@@ -49,6 +50,7 @@ public class SubstitutionInteractionHandler {
     private static final String CB_SENIOR_SCOPE = "SENIOR_SUB_SCOPE:";
     private static final String CB_SENIOR_NOTIFY_ALL = "SENIOR_SUB_NOTIFY_ALL:";
     private static final String CB_SENIOR_PICK_LIST = "SENIOR_SUB_PICK_LIST:";
+    private static final String CB_SENIOR_PICK_PAGE = "SENIOR_SUB_PICK_PAGE:";
     private static final String CB_SENIOR_PICK = "SENIOR_SUB_PICK:";
     private static final String CB_SENIOR_REJECT = "SENIOR_SUB_REJECT:";
     private static final String CB_SENIOR_REJECT_REASON = "SENIOR_SUB_REJECT_REASON:";
@@ -61,9 +63,12 @@ public class SubstitutionInteractionHandler {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
     private static final DateTimeFormatter DATE_SHORT_FORMAT = DateTimeFormatter.ofPattern("dd.MM");
     private static final DateTimeFormatter DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("dd.MM HH:mm");
+    private static final int DATE_PAGE_SIZE = 9;
+    private static final int CANDIDATE_PAGE_SIZE = 8;
 
     private final SubstitutionService substitutionService;
     private final SubstitutionDraftStore substitutionDraftStore;
+    private final SubstitutionMenuSessionStore substitutionMenuSessionStore;
     private final TelegramNotificationService notificationService;
     private final UserAccountService userAccountService;
 
@@ -79,8 +84,8 @@ public class SubstitutionInteractionHandler {
         if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() == Role.TM) {
             return BotResponse.empty();
         }
-        DateSelectionView view = buildDateSelection(telegramUserId);
-        return BotResponse.of(notificationService.sendMessage(chatId, view.text(), view.keyboard()));
+        DateSelectionView view = buildDateSelection(telegramUserId, 0);
+        return BotResponse.of(renderSellerMenu(telegramUserId, chatId, view));
     }
 
     public BotResponse handleCallback(CallbackQuery callbackQuery) {
@@ -93,82 +98,103 @@ public class SubstitutionInteractionHandler {
         }
 
         try {
+            BotResponse response = null;
             if (data.startsWith(CB_SUB_CREATE)) {
-                return handleCreateSelection(callbackQuery);
+                response = handleCreateSelection(callbackQuery);
+            } else if (CB_SUB_CREATE_URGENT.equals(data)) {
+                response = handleUrgentSelection(callbackQuery);
+            } else if (data.startsWith(CB_SUB_CONFIRM)) {
+                response = handleConfirm(callbackQuery);
+            } else if (CB_SUB_CANCEL.equals(data)) {
+                response = handleCancelDraft(callbackQuery);
+            } else if (data.startsWith(CB_SUB_PAGE)) {
+                response = handleDatePage(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_OPEN)) {
+                response = handleSeniorOpen(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_TAKE)) {
+                response = handleSeniorTake(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_FIND)) {
+                response = handleSeniorFind(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_SCOPE)) {
+                response = handleSeniorScope(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_NOTIFY_ALL)) {
+                response = handleNotifyAll(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_PICK_LIST)) {
+                response = handlePickList(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_PICK_PAGE)) {
+                response = handlePickPage(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_PICK)) {
+                response = handlePickCandidate(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_REJECT)) {
+                response = handleSeniorReject(callbackQuery);
+            } else if (data.startsWith(CB_SENIOR_REJECT_REASON)) {
+                response = handleRejectReason(callbackQuery);
+            } else if (data.startsWith(CB_CANDIDATE_ACCEPT)) {
+                response = handleCandidateAccept(callbackQuery);
+            } else if (data.startsWith(CB_CANDIDATE_DECLINE)) {
+                response = handleCandidateDecline(callbackQuery);
+            } else if (data.startsWith(CB_NAV_BACK)) {
+                response = handleNavBack(callbackQuery);
             }
-            if (CB_SUB_CREATE_URGENT.equals(data)) {
-                return handleUrgentSelection(callbackQuery);
+            if (response == null) {
+                return BotResponse.empty();
             }
-            if (data.startsWith(CB_SUB_CONFIRM)) {
-                return handleConfirm(callbackQuery);
-            }
-            if (CB_SUB_CANCEL.equals(data)) {
-                return handleCancelDraft(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_OPEN)) {
-                return handleSeniorOpen(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_TAKE)) {
-                return handleSeniorTake(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_FIND)) {
-                return handleSeniorFind(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_SCOPE)) {
-                return handleSeniorScope(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_NOTIFY_ALL)) {
-                return handleNotifyAll(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_PICK_LIST)) {
-                return handlePickList(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_PICK)) {
-                return handlePickCandidate(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_REJECT)) {
-                return handleSeniorReject(callbackQuery);
-            }
-            if (data.startsWith(CB_SENIOR_REJECT_REASON)) {
-                return handleRejectReason(callbackQuery);
-            }
-            if (data.startsWith(CB_CANDIDATE_ACCEPT)) {
-                return handleCandidateAccept(callbackQuery);
-            }
-            if (data.startsWith(CB_CANDIDATE_DECLINE)) {
-                return handleCandidateDecline(callbackQuery);
-            }
-            if (data.startsWith(CB_NAV_BACK)) {
-                return handleNavBack(callbackQuery);
-            }
+            return withAnswer(callbackQuery, response);
         } catch (IllegalStateException ex) {
             return BotResponse.of(notificationService.answerCallbackQuery(callbackQuery.getId(), ex.getMessage()));
         }
-
-        return BotResponse.empty();
     }
 
-    private DateSelectionView buildDateSelection(Long telegramUserId) {
+    private DateSelectionView buildDateSelection(Long telegramUserId, int page) {
         List<LocalDate> dates = substitutionService.getPlannedWorkDates(telegramUserId);
-        if (dates.isEmpty()) {
-            return new DateSelectionView("Немає запланованих робочих днів для підміни.", null);
-        }
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        if (dates.isEmpty()) {
+            rows.add(List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SUB_EXIT")));
+            return new DateSelectionView("Немає запланованих робочих днів для підміни.", InlineKeyboardFactory.rows(rows));
+        }
+
         LocalDate today = LocalDate.now();
-        if (dates.contains(today)) {
+        boolean urgentToday = dates.contains(today);
+        List<LocalDate> selectableDates = new ArrayList<>(dates);
+        selectableDates.removeIf(date -> urgentToday && date.equals(today));
+
+        int totalPages = Math.max(1, (int) Math.ceil(selectableDates.size() / (double) DATE_PAGE_SIZE));
+        int safePage = Math.max(0, Math.min(page, totalPages - 1));
+        int start = safePage * DATE_PAGE_SIZE;
+        int end = Math.min(selectableDates.size(), start + DATE_PAGE_SIZE);
+
+        if (urgentToday && safePage == 0) {
             rows.add(List.of(InlineKeyboardFactory.button(
                     "🔥 ТЕРМІНОВО: сьогодні (" + DATE_SHORT_FORMAT.format(today) + ")",
                     CB_SUB_CREATE_URGENT
             )));
         }
-        for (LocalDate date : dates) {
-            rows.add(List.of(InlineKeyboardFactory.button(
-                    DATE_SHORT_FORMAT.format(date),
-                    CB_SUB_CREATE + date
-            )));
+
+        List<InlineKeyboardButton> currentRow = new ArrayList<>();
+        for (LocalDate date : selectableDates.subList(start, end)) {
+            currentRow.add(InlineKeyboardFactory.button(DATE_SHORT_FORMAT.format(date), CB_SUB_CREATE + date));
+            if (currentRow.size() == 3) {
+                rows.add(currentRow);
+                currentRow = new ArrayList<>();
+            }
         }
+        if (!currentRow.isEmpty()) {
+            rows.add(currentRow);
+        }
+
+        if (totalPages > 1) {
+            List<InlineKeyboardButton> navRow = new ArrayList<>();
+            if (safePage > 0) {
+                navRow.add(InlineKeyboardFactory.button("◀️ Попередня", CB_SUB_PAGE + (safePage - 1)));
+            }
+            if (safePage < totalPages - 1) {
+                navRow.add(InlineKeyboardFactory.button("▶️ Далі", CB_SUB_PAGE + (safePage + 1)));
+            }
+            rows.add(navRow);
+        }
+        rows.add(List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SUB_EXIT")));
         InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(rows);
-        return new DateSelectionView("🔁 Потрібна підміна\nОберіть дату, на яку потрібна підміна:", keyboard);
+        return new DateSelectionView("Оберіть дату для підміни:", keyboard);
     }
 
     private BotResponse handleCreateSelection(CallbackQuery callbackQuery) {
@@ -206,7 +232,7 @@ public class SubstitutionInteractionHandler {
                         InlineKeyboardFactory.button("❌ Скасувати", CB_SUB_CANCEL)
                 )
         ));
-        return editMessage(callbackQuery.getMessage(), text, keyboard);
+        return editSellerMenu(telegramUserId, callbackQuery.getMessage(), text, keyboard);
     }
 
     private BotResponse handleConfirm(CallbackQuery callbackQuery) {
@@ -229,10 +255,14 @@ public class SubstitutionInteractionHandler {
         substitutionDraftStore.clearDraft(telegramUserId);
 
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        actions.add(editMessage(
+        InlineKeyboardMarkup keyboard = InlineKeyboardFactory.rows(List.of(
+                List.of(InlineKeyboardFactory.button("⬅️ Назад в меню", CB_NAV_BACK + "SUB_CREATE"))
+        ));
+        actions.add(editSellerMenu(
+                telegramUserId,
                 callbackQuery.getMessage(),
                 "✅ Запит на підміну створено. Очікуйте рішення старшого продавця.",
-                null
+                keyboard
         ));
         actions.addAll(notifySeniors(request));
         return new BotResponse(actions);
@@ -240,8 +270,15 @@ public class SubstitutionInteractionHandler {
 
     private BotResponse handleCancelDraft(CallbackQuery callbackQuery) {
         substitutionDraftStore.clearDraft(callbackQuery.getFrom().getId());
-        DateSelectionView view = buildDateSelection(callbackQuery.getFrom().getId());
-        return BotResponse.of(editMessage(callbackQuery.getMessage(), view.text(), view.keyboard()));
+        DateSelectionView view = buildDateSelection(callbackQuery.getFrom().getId(), 0);
+        return BotResponse.of(editSellerMenu(callbackQuery.getFrom().getId(), callbackQuery.getMessage(), view.text(), view.keyboard()));
+    }
+
+    private BotResponse handleDatePage(CallbackQuery callbackQuery) {
+        Long telegramUserId = callbackQuery.getFrom().getId();
+        int page = Integer.parseInt(callbackQuery.getData().substring(CB_SUB_PAGE.length()));
+        DateSelectionView view = buildDateSelection(telegramUserId, page);
+        return BotResponse.of(editSellerMenu(telegramUserId, callbackQuery.getMessage(), view.text(), view.keyboard()));
     }
 
     private BotResponse handleSeniorOpen(CallbackQuery callbackQuery) {
@@ -306,7 +343,22 @@ public class SubstitutionInteractionHandler {
         UserAccount senior = requireSenior(callbackQuery);
         SubstitutionRequest request = substitutionService.getRequest(requestId);
         List<UserAccount> candidates = substitutionService.findCandidates(requestId, request.getScope(), senior);
-        InlineKeyboardMarkup keyboard = buildCandidatePickKeyboard(requestId, candidates);
+        InlineKeyboardMarkup keyboard = buildCandidatePickKeyboard(requestId, candidates, 0);
+        String text = renderCandidatesSummary(request, candidates);
+        return BotResponse.of(editMessage(callbackQuery.getMessage(), text, keyboard));
+    }
+
+    private BotResponse handlePickPage(CallbackQuery callbackQuery) {
+        String[] parts = callbackQuery.getData().substring(CB_SENIOR_PICK_PAGE.length()).split(":");
+        if (parts.length != 2) {
+            return BotResponse.empty();
+        }
+        UUID requestId = CallbackIdEncoder.decode(parts[0]);
+        int page = Integer.parseInt(parts[1]);
+        UserAccount senior = requireSenior(callbackQuery);
+        SubstitutionRequest request = substitutionService.getRequest(requestId);
+        List<UserAccount> candidates = substitutionService.findCandidates(requestId, request.getScope(), senior);
+        InlineKeyboardMarkup keyboard = buildCandidatePickKeyboard(requestId, candidates, page);
         String text = renderCandidatesSummary(request, candidates);
         return BotResponse.of(editMessage(callbackQuery.getMessage(), text, keyboard));
     }
@@ -411,8 +463,16 @@ public class SubstitutionInteractionHandler {
     private BotResponse handleNavBack(CallbackQuery callbackQuery) {
         String context = callbackQuery.getData().substring(CB_NAV_BACK.length());
         if (context.startsWith("SUB_CREATE")) {
-            DateSelectionView view = buildDateSelection(callbackQuery.getFrom().getId());
-            return BotResponse.of(editMessage(callbackQuery.getMessage(), view.text(), view.keyboard()));
+            DateSelectionView view = buildDateSelection(callbackQuery.getFrom().getId(), 0);
+            return BotResponse.of(editSellerMenu(callbackQuery.getFrom().getId(), callbackQuery.getMessage(), view.text(), view.keyboard()));
+        }
+        if (context.startsWith("SUB_EXIT")) {
+            return BotResponse.of(editSellerMenu(
+                    callbackQuery.getFrom().getId(),
+                    callbackQuery.getMessage(),
+                    "Меню підміни закрито.",
+                    null
+            ));
         }
         if (context.startsWith("SENIOR_SCOPE:")) {
             UUID requestId = CallbackIdEncoder.decode(context.substring("SENIOR_SCOPE:".length()));
@@ -461,13 +521,43 @@ public class SubstitutionInteractionHandler {
         return editMessage(message, "Де шукати заміну?", keyboard);
     }
 
-    private InlineKeyboardMarkup buildCandidatePickKeyboard(UUID requestId, List<UserAccount> candidates) {
+    private InlineKeyboardMarkup buildCandidatePickKeyboard(UUID requestId, List<UserAccount> candidates, int page) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (UserAccount candidate : candidates) {
-            rows.add(List.of(InlineKeyboardFactory.button(
-                    candidate.getLastName(),
-                    CB_SENIOR_PICK + CallbackIdEncoder.encode(requestId) + ":" + CallbackIdEncoder.encode(candidate.getId())
-            )));
+        if (!candidates.isEmpty()) {
+            int totalPages = Math.max(1, (int) Math.ceil(candidates.size() / (double) CANDIDATE_PAGE_SIZE));
+            int safePage = Math.max(0, Math.min(page, totalPages - 1));
+            int start = safePage * CANDIDATE_PAGE_SIZE;
+            int end = Math.min(candidates.size(), start + CANDIDATE_PAGE_SIZE);
+            List<InlineKeyboardButton> row = new ArrayList<>();
+            for (UserAccount candidate : candidates.subList(start, end)) {
+                row.add(InlineKeyboardFactory.button(
+                        candidate.getLastName(),
+                        CB_SENIOR_PICK + CallbackIdEncoder.encode(requestId) + ":" + CallbackIdEncoder.encode(candidate.getId())
+                ));
+                if (row.size() == 2) {
+                    rows.add(row);
+                    row = new ArrayList<>();
+                }
+            }
+            if (!row.isEmpty()) {
+                rows.add(row);
+            }
+            if (totalPages > 1) {
+                List<InlineKeyboardButton> navRow = new ArrayList<>();
+                if (safePage > 0) {
+                    navRow.add(InlineKeyboardFactory.button(
+                            "◀️ Попередня",
+                            CB_SENIOR_PICK_PAGE + CallbackIdEncoder.encode(requestId) + ":" + (safePage - 1)
+                    ));
+                }
+                if (safePage < totalPages - 1) {
+                    navRow.add(InlineKeyboardFactory.button(
+                            "▶️ Далі",
+                            CB_SENIOR_PICK_PAGE + CallbackIdEncoder.encode(requestId) + ":" + (safePage + 1)
+                    ));
+                }
+                rows.add(navRow);
+            }
         }
         rows.add(List.of(InlineKeyboardFactory.button("⬅️ Назад", CB_NAV_BACK + "SENIOR_PICK:" + CallbackIdEncoder.encode(requestId))));
         return InlineKeyboardFactory.rows(rows);
@@ -514,18 +604,23 @@ public class SubstitutionInteractionHandler {
     }
 
     private List<BotApiMethod<?>> notifySeniors(SubstitutionRequest request) {
-        List<UserAccount> seniors = substitutionService.findSeniorsForLocation(request.getLocation().getId());
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        for (UserAccount senior : seniors) {
+        Optional<UserAccount> seniorOptional = substitutionService.findSeniorForRequest(request.getLocation());
+        if (seniorOptional.isPresent()) {
+            UserAccount senior = seniorOptional.get();
             SendMessage message = notificationService.sendMessage(
                     senior.getTelegramChatId(),
                     buildSeniorRequestText(request),
                     buildSeniorInlineKeyboard(request.getId())
             );
             actions.add(message);
-        }
-        if (seniors.isEmpty()) {
-            log.warn("No seniors found for location {}. requestId={}", request.getLocation().getId(), request.getId());
+        } else {
+            log.warn("No seniors found for TM/location {}. requestId={}", request.getLocation().getId(), request.getId());
+            actions.add(notificationService.sendMessage(
+                    request.getRequester().getTelegramChatId(),
+                    "⚠️ Немає старшого продавця для вашого ТМ. Зверніться до адміністратора.",
+                    null
+            ));
         }
         return actions;
     }
@@ -539,13 +634,12 @@ public class SubstitutionInteractionHandler {
                     "✅ Підміну знайдено: " + replacement.getLastName() + ". Дата " + DATE_FORMAT.format(request.getRequestDate()) + ".",
                     null
             ));
-            for (UserAccount senior : substitutionService.findSeniorsForLocation(request.getLocation().getId())) {
-                actions.add(notificationService.sendMessage(
-                        senior.getTelegramChatId(),
-                        "✅ Підміну підтверджено: " + replacement.getLastName() + " на " + DATE_FORMAT.format(request.getRequestDate()) + ".",
-                        null
-                ));
-            }
+            substitutionService.findSeniorForRequest(request.getLocation())
+                    .ifPresent(senior -> actions.add(notificationService.sendMessage(
+                            senior.getTelegramChatId(),
+                            "✅ Підміну підтверджено: " + replacement.getLastName() + " на " + DATE_FORMAT.format(request.getRequestDate()) + ".",
+                            null
+                    )));
         }
         return actions;
     }
@@ -607,6 +701,47 @@ public class SubstitutionInteractionHandler {
 
     private EditMessageText editMessage(Message message, String text, InlineKeyboardMarkup keyboard) {
         return notificationService.editMessage(message.getChatId(), message.getMessageId(), text, keyboard);
+    }
+
+    private BotApiMethod<?> renderSellerMenu(Long telegramUserId, Long chatId, DateSelectionView view) {
+        Optional<SubstitutionMenuSessionStore.MenuSession> session = substitutionMenuSessionStore.findSession(telegramUserId);
+        if (session.isPresent()) {
+            SubstitutionMenuSessionStore.MenuSession menuSession = session.get();
+            return notificationService.editMenu(
+                    telegramUserId,
+                    menuSession.getChatId(),
+                    menuSession.getMessageId().intValue(),
+                    view.text(),
+                    view.keyboard()
+            );
+        }
+        return notificationService.sendMenu(telegramUserId, chatId, view.text(), view.keyboard());
+    }
+
+    private BotApiMethod<?> editSellerMenu(Long telegramUserId, Message fallbackMessage, String text, InlineKeyboardMarkup keyboard) {
+        Optional<SubstitutionMenuSessionStore.MenuSession> session = substitutionMenuSessionStore.findSession(telegramUserId);
+        if (session.isPresent()) {
+            SubstitutionMenuSessionStore.MenuSession menuSession = session.get();
+            return notificationService.editMenu(
+                    telegramUserId,
+                    menuSession.getChatId(),
+                    menuSession.getMessageId().intValue(),
+                    text,
+                    keyboard
+            );
+        }
+        return notificationService.editMessage(fallbackMessage.getChatId(), fallbackMessage.getMessageId(), text, keyboard);
+    }
+
+    private BotResponse withAnswer(CallbackQuery callbackQuery, BotResponse response) {
+        boolean hasAnswer = response.actions().stream().anyMatch(AnswerCallbackQuery.class::isInstance);
+        if (hasAnswer) {
+            return response;
+        }
+        List<BotApiMethod<?>> actions = new ArrayList<>();
+        actions.add(notificationService.answerCallbackQuery(callbackQuery.getId()));
+        actions.addAll(response.actions());
+        return new BotResponse(actions);
     }
 
     private UserAccount requireSenior(CallbackQuery callbackQuery) {
