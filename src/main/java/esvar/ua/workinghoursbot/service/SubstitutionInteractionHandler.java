@@ -36,6 +36,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 public class SubstitutionInteractionHandler {
 
     private static final String COMMAND_SUBSTITUTION = "🔁 Підміна";
+    private static final String COMMAND_ACTIVE_REQUESTS = "📌 Активні запити на підміни";
 
     private static final String CB_SUB_CREATE = "SUB_REQ_CREATE:";
     private static final String CB_SUB_CREATE_URGENT = "SUB_REQ_CREATE_URGENT_TODAY";
@@ -80,8 +81,22 @@ public class SubstitutionInteractionHandler {
     private final SubstitutionMenuSessionStore substitutionMenuSessionStore;
     private final TelegramNotificationService notificationService;
     private final UserAccountService userAccountService;
+    private final SubstitutionNotificationService substitutionNotificationService;
 
     public BotResponse handleMessage(Long telegramUserId, Long chatId, String text) {
+        if (COMMAND_ACTIVE_REQUESTS.equalsIgnoreCase(text)) {
+            Optional<UserAccount> accountOptional = userAccountService.findByTelegramUserId(telegramUserId);
+            if (accountOptional.isEmpty()) {
+                return BotResponse.empty();
+            }
+            UserAccount account = accountOptional.get();
+            if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() != Role.SENIOR_SELLER) {
+                return BotResponse.empty();
+            }
+            ActiveRequestsView view = buildActiveRequestsView(account, 0);
+            return BotResponse.of(notificationService.sendMessage(chatId, view.text(), view.keyboard()));
+        }
+
         if (!COMMAND_SUBSTITUTION.equalsIgnoreCase(text)) {
             return BotResponse.empty();
         }
@@ -288,7 +303,8 @@ public class SubstitutionInteractionHandler {
                 telegramUserId,
                 draft.getDate(),
                 draft.isUrgent(),
-                draft.getId()
+                draft.getId(),
+                "не можу"
         );
         substitutionDraftStore.clearDraft(telegramUserId);
 
@@ -302,7 +318,7 @@ public class SubstitutionInteractionHandler {
                 "✅ Запит на підміну створено. Очікуйте рішення старшого продавця.",
                 keyboard
         ));
-        actions.addAll(notifySeniors(request));
+        actions.addAll(substitutionNotificationService.notifySeniorAboutRequest(request));
         return new BotResponse(actions);
     }
 
@@ -330,7 +346,7 @@ public class SubstitutionInteractionHandler {
         UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_TAKE.length()));
         UserAccount senior = requireSenior(callbackQuery);
         SubstitutionRequest request = substitutionService.approveBySenior(requestId, senior.getTelegramUserId());
-        SubstitutionRequest saved = substitutionService.submitToTmApproval(request.getId());
+        SubstitutionRequest saved = substitutionService.submitToTmApproval(request.getId(), senior.getId());
 
         List<BotApiMethod<?>> actions = new ArrayList<>();
         actions.add(editMessage(callbackQuery.getMessage(), "✅ Запит відправлено на підтвердження ТМ.", null));
@@ -555,7 +571,7 @@ public class SubstitutionInteractionHandler {
                 "✅ Дякуємо! Очікуємо підтвердження ТМ.",
                 null
         ));
-        actions.addAll(notifyTmApproval(substitutionService.submitToTmApproval(request.getId())));
+        actions.addAll(notifyTmApproval(substitutionService.submitToTmApproval(request.getId(), result.getCandidate().getId())));
         return new BotResponse(actions);
     }
 
@@ -619,7 +635,7 @@ public class SubstitutionInteractionHandler {
                 DATE_TIME_FORMAT.format(request.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDateTime()),
                 statusLine
         );
-        InlineKeyboardMarkup keyboard = buildSeniorInlineKeyboard(request);
+        InlineKeyboardMarkup keyboard = substitutionNotificationService.buildSeniorInlineKeyboard(request);
         return editMessage(message, text, keyboard);
     }
 
@@ -769,28 +785,6 @@ public class SubstitutionInteractionHandler {
         return actions;
     }
 
-    private List<BotApiMethod<?>> notifySeniors(SubstitutionRequest request) {
-        List<BotApiMethod<?>> actions = new ArrayList<>();
-        Optional<UserAccount> seniorOptional = substitutionService.findSeniorForRequest(request.getLocation());
-        if (seniorOptional.isPresent()) {
-            UserAccount senior = seniorOptional.get();
-            SendMessage message = notificationService.sendMessage(
-                    senior.getTelegramChatId(),
-                    buildSeniorRequestText(request),
-                    buildSeniorInlineKeyboard(request)
-            );
-            actions.add(message);
-        } else {
-            log.warn("No seniors found for TM/location {}. requestId={}", request.getLocation().getId(), request.getId());
-            actions.add(notificationService.sendMessage(
-                    request.getRequester().getTelegramChatId(),
-                    "⚠️ Немає старшого продавця для вашого ТМ. Зверніться до адміністратора.",
-                    null
-            ));
-        }
-        return actions;
-    }
-
     private List<BotApiMethod<?>> notifyTmApproval(SubstitutionRequest request) {
         List<BotApiMethod<?>> actions = new ArrayList<>();
         UserAccount tmUser = request.getTmUser();
@@ -935,34 +929,6 @@ public class SubstitutionInteractionHandler {
         return actions;
     }
 
-    private String buildSeniorRequestText(SubstitutionRequest request) {
-        return """
-                🔁 Запит на підміну
-                👤 Продавець: %s
-                📍 Локація: %s
-                📅 Дата: %s
-                🕒 Створено: %s
-                """.formatted(
-                request.getRequester().getLastName(),
-                request.getLocation().getName(),
-                DATE_FORMAT.format(request.getRequestDate()),
-                DATE_TIME_FORMAT.format(request.getCreatedAt().atZone(ZoneId.systemDefault()).toLocalDateTime())
-        );
-    }
-
-    private InlineKeyboardMarkup buildSeniorInlineKeyboard(SubstitutionRequest request) {
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        if (request.getStatus() == SubstitutionRequestStatus.NEW
-                || request.getStatus() == SubstitutionRequestStatus.IN_PROGRESS) {
-            rows.add(List.of(
-                    InlineKeyboardFactory.button("✅ Я візьму зміну", CB_SENIOR_TAKE + CallbackIdEncoder.encode(request.getId())),
-                    InlineKeyboardFactory.button("👥 Знайти заміну", CB_SENIOR_FIND + CallbackIdEncoder.encode(request.getId()))
-            ));
-            rows.add(List.of(InlineKeyboardFactory.button("❌ Відхилити", CB_SENIOR_REJECT + CallbackIdEncoder.encode(request.getId()))));
-        }
-        rows.add(List.of(InlineKeyboardFactory.button("📌 Активні запити на підміну", CB_SENIOR_ACTIVE_LIST)));
-        return InlineKeyboardFactory.rows(rows);
-    }
 
     private EditMessageText editMessage(Message message, String text, InlineKeyboardMarkup keyboard) {
         return notificationService.editMessage(message.getChatId(), message.getMessageId(), text, keyboard);

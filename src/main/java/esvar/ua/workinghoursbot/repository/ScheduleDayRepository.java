@@ -33,4 +33,8 @@ public interface ScheduleDayRepository extends JpaRepository<ScheduleDay, UUID> 
     );
 
     long deleteByTelegramUserIdAndLocationIdAndDate(Long telegramUserId, UUID locationId, LocalDate date);
+
+    List<ScheduleDay> findByDateAndStatus(LocalDate date, ScheduleStatus status);
+
+    List<ScheduleDay> findByLocationIdAndDateBetween(UUID locationId, LocalDate start, LocalDate end);
 }

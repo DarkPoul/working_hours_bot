@@ -83,13 +83,19 @@ public final class KeyboardFactory {
         return markup;
     }
 
-    public static ReplyKeyboardMarkup mainMenuKeyboard() {
-        KeyboardRow row1 = singleButtonRow("✍️ Внести графік");
-        KeyboardRow row2 = singleButtonRow("🗓 Мій графік");
-        KeyboardRow row3 = singleButtonRow("🏢 Локація");
-        KeyboardRow row4 = singleButtonRow("🔁 Підміна");
+    public static ReplyKeyboardMarkup mainMenuKeyboard(boolean scheduleEditEnabled, boolean showActiveRequests) {
+        List<KeyboardRow> rows = new ArrayList<>();
+        if (scheduleEditEnabled) {
+            rows.add(singleButtonRow("✍️ Внести графік"));
+        }
+        rows.add(singleButtonRow("🗓 Мій графік"));
+        if (showActiveRequests) {
+            rows.add(singleButtonRow("📌 Активні запити на підміни"));
+        }
+        rows.add(singleButtonRow("📍 Моя локація"));
+        rows.add(singleButtonRow("🔁 Підміна"));
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3, row4));
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(rows);
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;
@@ -99,8 +105,9 @@ public final class KeyboardFactory {
         KeyboardRow row1 = singleButtonRow("Заявки");
         KeyboardRow row2 = singleButtonRow("Локації");
         KeyboardRow row3 = singleButtonRow("Графік локацій");
+        KeyboardRow row4 = singleButtonRow("📍 Моя локація");
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3, row4));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;
@@ -117,6 +124,16 @@ public final class KeyboardFactory {
         KeyboardRow row = new KeyboardRow();
         row.add(new KeyboardButton("Так"));
         row.add(new KeyboardButton("Назад"));
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row));
+        markup.setResizeKeyboard(true);
+        markup.setOneTimeKeyboard(false);
+        return markup;
+    }
+
+    public static ReplyKeyboardMarkup yesNoKeyboard() {
+        KeyboardRow row = new KeyboardRow();
+        row.add(new KeyboardButton("Так"));
+        row.add(new KeyboardButton("Ні"));
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
@@ -152,6 +169,15 @@ public final class KeyboardFactory {
         KeyboardRow row3 = singleButtonRow("Назад");
 
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
+        markup.setResizeKeyboard(true);
+        markup.setOneTimeKeyboard(false);
+        return markup;
+    }
+
+    public static ReplyKeyboardMarkup tmScheduleLocationKeyboard(boolean editEnabled) {
+        KeyboardRow row1 = singleButtonRow(editEnabled ? "Заборонити внесення графіку" : "Дозволити внесення графіку");
+        KeyboardRow row2 = singleButtonRow("Назад");
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;

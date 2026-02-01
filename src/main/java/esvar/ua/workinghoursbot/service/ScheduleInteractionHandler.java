@@ -2,6 +2,7 @@ package esvar.ua.workinghoursbot.service;
 
 import esvar.ua.workinghoursbot.bot.BotResponse;
 import esvar.ua.workinghoursbot.bot.KeyboardFactory;
+import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.Location;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.Role;
@@ -41,6 +42,9 @@ public class ScheduleInteractionHandler {
     private final ScheduleCalendarRenderer calendarRenderer;
     private final ScheduleCalendarKeyboardBuilder keyboardBuilder;
     private final ScheduleRenderer scheduleRenderer;
+    private final TmScheduleEditGateService scheduleEditGateService;
+    private final MainMenuService mainMenuService;
+    private final AuditService auditService;
 
     public BotResponse handleMessage(Long telegramUserId, Long chatId, String text) {
         if (text == null || text.isBlank()) {
@@ -61,13 +65,18 @@ public class ScheduleInteractionHandler {
         if (isEditMenuAction(text)) {
             if (session.getMode() != InteractionMode.EDIT_SCHEDULE) {
                 SendMessage response = simpleMessage(chatId, "Спочатку натисніть «Внести графік».");
-                response.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
+                response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
                 return BotResponse.of(response);
             }
             return handleEditMenuAction(session, account, chatId, text);
         }
 
         if (COMMAND_EDIT.equalsIgnoreCase(text)) {
+            if (!scheduleEditGateService.isScheduleEditEnabled(account)) {
+                SendMessage response = simpleMessage(chatId, "Внесення графіку тимчасово закрите ТМ.");
+                response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
+                return BotResponse.of(response);
+            }
             return enterEditMode(session, account, chatId);
         }
 
@@ -102,6 +111,12 @@ public class ScheduleInteractionHandler {
         Location location = account.getLocation();
         if (location == null) {
             return BotResponse.of(simpleMessage(chatId, "Спочатку оберіть локацію."));
+        }
+
+        if (!scheduleEditGateService.isScheduleEditEnabled(account)) {
+            SendMessage response = simpleMessage(chatId, "Внесення графіку тимчасово закрите ТМ.");
+            response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
+            return BotResponse.of(response);
         }
 
         YearMonth month = YearMonth.now();
@@ -173,6 +188,11 @@ public class ScheduleInteractionHandler {
         if (location == null) {
             return BotResponse.of(simpleMessage(chatId, "Спочатку оберіть локацію."));
         }
+        if (!scheduleEditGateService.isScheduleEditEnabled(account)) {
+            SendMessage response = simpleMessage(chatId, "Внесення графіку тимчасово закрите ТМ.");
+            response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
+            return BotResponse.of(response);
+        }
 
         YearMonth activeMonth = session.getActiveYearMonth();
         if (activeMonth == null) {
@@ -198,6 +218,21 @@ public class ScheduleInteractionHandler {
                     location.getId(),
                     activeMonth,
                     draftDays
+            );
+
+            auditService.log(
+                    AuditEventType.SCHEDULE_SUBMITTED,
+                    account.getId(),
+                    null,
+                    location.getId(),
+                    "Місяць: %s | Робочих днів: %d".formatted(activeMonth, draftDays.size())
+            );
+            auditService.log(
+                    AuditEventType.SCHEDULE_CHANGE_REQUESTED,
+                    account.getId(),
+                    null,
+                    location.getId(),
+                    "Місяць: %s | Робочих днів: %d".formatted(activeMonth, draftDays.size())
             );
 
             Set<LocalDate> persistedDays = schedulePersistenceService.loadMonth(
@@ -257,7 +292,7 @@ public class ScheduleInteractionHandler {
 
             BotApiMethod<?> calendarUpdate = buildCancelEditMessage(session);
             SendMessage menu = simpleMessage(chatId, "Редагування скасовано.");
-            menu.setReplyMarkup(KeyboardFactory.mainMenuKeyboard());
+            menu.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
 
             if (calendarUpdate == null) {
                 return BotResponse.of(menu);

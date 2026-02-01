@@ -27,6 +27,13 @@ public interface SubstitutionRequestRepository extends JpaRepository<Substitutio
 
     List<SubstitutionRequest> findByStatusInOrderByRequestDateAsc(Collection<SubstitutionRequestStatus> statuses);
 
+    List<SubstitutionRequest> findByStatusAndLocation_IdAndRequestDateBetween(
+            SubstitutionRequestStatus status,
+            UUID locationId,
+            LocalDate start,
+            LocalDate end
+    );
+
     @Lock(LockModeType.OPTIMISTIC)
     Optional<SubstitutionRequest> findWithLockById(UUID id);
 }

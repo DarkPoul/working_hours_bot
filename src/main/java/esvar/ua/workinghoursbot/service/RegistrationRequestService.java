@@ -1,5 +1,6 @@
 package esvar.ua.workinghoursbot.service;
 
+import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.repository.UserAccountRepository;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class RegistrationRequestService {
 
     private final UserAccountRepository userAccountRepository;
+    private final AuditService auditService;
 
     public List<UserAccount> findPendingByTmUserId(Long tmUserId) {
         return userAccountRepository.findByStatusAndLocation_TmUserIdOrderByCreatedAtAsc(
@@ -37,7 +39,19 @@ public class RegistrationRequestService {
         request.setStatus(RegistrationStatus.APPROVED);
         request.setApprovedByTelegramUserId(approvedByTelegramUserId);
         request.setApprovedAt(Instant.now());
-        return userAccountRepository.save(request);
+        UserAccount saved = userAccountRepository.save(request);
+        userAccountRepository.findByTelegramUserId(approvedByTelegramUserId)
+                .ifPresent(actor -> auditService.log(
+                        AuditEventType.USER_APPROVED,
+                        actor.getId(),
+                        saved.getId(),
+                        saved.getLocation() != null ? saved.getLocation().getId() : null,
+                        "Користувач: %s | Локація: %s".formatted(
+                                saved.getLastName(),
+                                saved.getLocation() != null ? saved.getLocation().getName() : "-"
+                        )
+                ));
+        return saved;
     }
 
     @Transactional
