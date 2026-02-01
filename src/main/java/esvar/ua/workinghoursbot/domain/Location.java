@@ -27,6 +27,9 @@ public class Location {
     @Column(nullable = false)
     private String name;
 
+    @Column(name = "tm_user_id")
+    private Long tmUserId;
+
     // Додаємо відсутнє поле, через яке виникає помилка
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
