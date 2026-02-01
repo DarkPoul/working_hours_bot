@@ -4,6 +4,7 @@ import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.Role;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.service.RegistrationService;
+import esvar.ua.workinghoursbot.service.ScheduleInteractionService;
 import esvar.ua.workinghoursbot.service.TmMenuService;
 import esvar.ua.workinghoursbot.service.UserAccountService;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ public class UpdateRouter {
     private final RegistrationService registrationService;
     private final UserAccountService userAccountService;
     private final TmMenuService tmMenuService;
+    private final ScheduleInteractionService scheduleInteractionService;
 
     public BotResponse route(Update update) {
         if (update == null) {
@@ -29,6 +31,10 @@ public class UpdateRouter {
 
         if (update.hasMessage()) {
             return handleMessage(update.getMessage());
+        }
+
+        if (update.hasCallbackQuery()) {
+            return handleCallback(update.getCallbackQuery());
         }
 
         return BotResponse.empty();
@@ -66,8 +72,12 @@ public class UpdateRouter {
             return BotResponse.empty();
         }
 
+        BotResponse response = scheduleInteractionService.handleCallback(callbackQuery);
+        if (!response.actions().isEmpty()) {
+            return response;
+        }
         log.info("Ignoring callback query for user {}", callbackQuery.getFrom().getId());
-        return BotResponse.empty();
+        return response;
     }
 
     private BotResponse handleStartCommand(Long telegramUserId, Long chatId) {
@@ -86,6 +96,11 @@ public class UpdateRouter {
         UserAccount account = userAccountService.findByTelegramUserId(telegramUserId).orElse(null);
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() == Role.TM) {
             return tmMenuService.handleText(telegramUserId, chatId, text);
+        }
+        if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() != Role.TM) {
+            if (scheduleInteractionService.isScheduleCommand(text)) {
+                return scheduleInteractionService.handleMenuCommand(telegramUserId, chatId, text);
+            }
         }
         return registrationService.handleText(telegramUserId, chatId, text);
     }
