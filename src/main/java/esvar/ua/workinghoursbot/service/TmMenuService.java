@@ -514,15 +514,21 @@ public class TmMenuService {
 
     private BotResponse approveRequest(TmSession session, Long chatId) {
         UUID requestId = session.getSelectedRequestId();
+        java.util.concurrent.atomic.AtomicReference<String> responseText =
+                new java.util.concurrent.atomic.AtomicReference<>("Готово. Працівника додано.");
         if (requestId != null) {
             resolveTmAccount(session.getTelegramUserId())
                     .flatMap(tm -> registrationRequestService.findPendingByIdAndTmId(requestId, tm.getId()))
-                    .ifPresent(request -> registrationRequestService.approve(request, session.getTelegramUserId()));
+                    .ifPresent(request -> {
+                        RegistrationRequestService.ApprovalResult result =
+                                registrationRequestService.approve(request, session.getTelegramUserId());
+                        responseText.set(result.message());
+                    });
         }
         session.setSelectedRequestId(null);
         tmSessionService.save(session);
 
-        SendMessage done = buildMessage(chatId, "Готово. Працівника додано.");
+        SendMessage done = buildMessage(chatId, responseText.get());
         BotResponse listResponse = showRequestsList(session, chatId);
         return BotResponse.of(done, listResponse.actions().get(0));
     }
