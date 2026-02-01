@@ -24,10 +24,6 @@ public class UpdateRouter {
             return handleMessage(update.getMessage());
         }
 
-        if (update.hasCallbackQuery()) {
-            return handleCallback(update.getCallbackQuery());
-        }
-
         return BotResponse.empty();
     }
 
@@ -63,14 +59,7 @@ public class UpdateRouter {
             return BotResponse.empty();
         }
 
-        Long telegramUserId = callbackQuery.getFrom().getId();
-        Long chatId = callbackQuery.getMessage() != null ? callbackQuery.getMessage().getChatId() : null;
-        if (chatId == null) {
-            log.warn("Callback without chat message for user {}", telegramUserId);
-            return BotResponse.empty();
-        }
-
-        return registrationService.handleCallback(telegramUserId, chatId,
-                callbackQuery.getData(), callbackQuery.getId());
+        log.info("Ignoring callback query for user {}", callbackQuery.getFrom().getId());
+        return BotResponse.empty();
     }
 }

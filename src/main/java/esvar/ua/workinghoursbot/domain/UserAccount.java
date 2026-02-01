@@ -33,8 +33,9 @@ public class UserAccount {
     @Column(name = "role", nullable = false, length = 32)
     private Role role;
 
-    @Column(name = "location", length = 128)
-    private String location;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "location_id")
+    private Location location;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)

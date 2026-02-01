@@ -7,4 +7,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface UserAccountRepository extends JpaRepository<UserAccount, Long> {
 
     Optional<UserAccount> findByTelegramUserId(Long telegramUserId);
+
+    void deleteByTelegramUserId(Long telegramUserId);
 }

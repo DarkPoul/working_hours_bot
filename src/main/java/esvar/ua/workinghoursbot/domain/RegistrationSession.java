@@ -42,6 +42,9 @@ public class RegistrationSession {
     @Column(name = "draft_role", length = 32)
     private Role draftRole;
 
+    @Column(name = "draft_location_page")
+    private Integer draftLocationPage;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
