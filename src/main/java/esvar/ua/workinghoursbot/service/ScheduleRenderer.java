@@ -23,8 +23,9 @@ public class ScheduleRenderer {
         header.append("📍 ").append(locationName).append("\n");
         header.append("📅 ").append(formatMonth(month)).append("\n");
         if (summary != null) {
-            header.append("Робочих днів: ").append(summary.workingCount()).append("\n");
-            header.append("Вихідних днів: ").append(summary.offCount()).append("\n");
+            header.append("Робочі: ").append(summary.workingCount())
+                    .append(" | Вихідні: ").append(summary.offCount())
+                    .append("\n");
         }
         header.append("\n");
         StringBuilder table = new StringBuilder();

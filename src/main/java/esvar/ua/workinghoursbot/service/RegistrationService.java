@@ -2,6 +2,7 @@ package esvar.ua.workinghoursbot.service;
 
 import esvar.ua.workinghoursbot.bot.BotResponse;
 import esvar.ua.workinghoursbot.bot.KeyboardFactory;
+import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.Location;
 import esvar.ua.workinghoursbot.domain.RegistrationSession;
 import esvar.ua.workinghoursbot.domain.RegistrationState;
@@ -35,6 +36,8 @@ public class RegistrationService {
     private final UserAccountService userAccountService;
     private final RegistrationSessionService registrationSessionService;
     private final LocationService locationService;
+    private final MainMenuService mainMenuService;
+    private final AuditService auditService;
 
     public BotResponse startRegistration(Long telegramUserId, Long chatId) {
         Optional<UserAccount> existingAccount = userAccountService.findByTelegramUserId(telegramUserId);
@@ -179,6 +182,13 @@ public class RegistrationService {
         registrationSessionService.deleteByTelegramUserId(session.getTelegramUserId());
         log.info("Saved user account telegramUserId={} role={} status={} location={}", account.getTelegramUserId(),
                 account.getRole(), account.getStatus(), location.getCode());
+        auditService.log(
+                AuditEventType.USER_REGISTER_SUBMITTED,
+                account.getId(),
+                null,
+                location.getId(),
+                buildRegistrationPayload(account, location)
+        );
         SendMessage response = buildMessage(chatId,
                 "Дякую! Заявку на реєстрацію створено. Очікуйте підтвердження.");
         response.setReplyMarkup(KeyboardFactory.pendingMenuKeyboard());
@@ -336,7 +346,16 @@ public class RegistrationService {
         if (account.getRole() == Role.TM) {
             return KeyboardFactory.tmMainMenuKeyboard();
         }
-        return KeyboardFactory.mainMenuKeyboard();
+        return mainMenuService.mainMenuKeyboard(account);
+    }
+
+    private String buildRegistrationPayload(UserAccount account, Location location) {
+        String approver = userAccountService.findApproverName(location);
+        return "ПІБ: %s | Локація: %s | Очікує: %s".formatted(
+                account.getLastName(),
+                location.getName(),
+                approver == null ? "-" : approver
+        );
     }
 
     private BotResponse restartRegistration(Long telegramUserId, Long chatId) {

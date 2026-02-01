@@ -3,11 +3,16 @@ package esvar.ua.workinghoursbot.bot;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.Role;
 import esvar.ua.workinghoursbot.domain.UserAccount;
+import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.service.RegistrationService;
 import esvar.ua.workinghoursbot.service.ScheduleInteractionHandler;
+import esvar.ua.workinghoursbot.service.ShiftConfirmationService;
+import esvar.ua.workinghoursbot.service.LocationInfoService;
+import esvar.ua.workinghoursbot.service.AuditService;
 import esvar.ua.workinghoursbot.service.SubstitutionInteractionHandler;
 import esvar.ua.workinghoursbot.service.TmMenuService;
 import esvar.ua.workinghoursbot.service.UserAccountService;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -25,6 +30,9 @@ public class UpdateRouter {
     private final TmMenuService tmMenuService;
     private final ScheduleInteractionHandler scheduleInteractionHandler;
     private final SubstitutionInteractionHandler substitutionInteractionHandler;
+    private final ShiftConfirmationService shiftConfirmationService;
+    private final LocationInfoService locationInfoService;
+    private final AuditService auditService;
 
     public BotResponse route(Update update) {
         if (update == null) {
@@ -74,6 +82,11 @@ public class UpdateRouter {
             return BotResponse.empty();
         }
 
+        BotResponse tmResponse = tmMenuService.handleCallback(callbackQuery);
+        if (!tmResponse.actions().isEmpty()) {
+            return tmResponse;
+        }
+
         BotResponse substitutionResponse = substitutionInteractionHandler.handleCallback(callbackQuery);
         if (!substitutionResponse.actions().isEmpty()) {
             return substitutionResponse;
@@ -88,6 +101,15 @@ public class UpdateRouter {
     }
 
     private BotResponse handleStartCommand(Long telegramUserId, Long chatId) {
+        Optional<UserAccount> accountOptional = userAccountService.findByTelegramUserId(telegramUserId);
+        auditService.log(
+                AuditEventType.USER_START,
+                accountOptional.map(UserAccount::getId).orElse(null),
+                null,
+                accountOptional.map(account -> account.getLocation() == null ? null : account.getLocation().getId()).orElse(null),
+                accountOptional.map(account -> "Користувач: " + account.getLastName())
+                        .orElse("TelegramUserId: " + telegramUserId)
+        );
         return userAccountService.findByTelegramUserId(telegramUserId)
                 .filter(account -> account.getStatus() == RegistrationStatus.APPROVED)
                 .map(account -> {
@@ -101,6 +123,18 @@ public class UpdateRouter {
 
     private BotResponse handleText(Long telegramUserId, Long chatId, String text) {
         UserAccount account = userAccountService.findByTelegramUserId(telegramUserId).orElse(null);
+        if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() != Role.TM) {
+            BotResponse confirmationResponse = shiftConfirmationService.handleResponse(telegramUserId, chatId, text);
+            if (!confirmationResponse.actions().isEmpty()) {
+                return confirmationResponse;
+            }
+        }
+        if (account != null && account.getStatus() == RegistrationStatus.APPROVED) {
+            BotResponse locationResponse = locationInfoService.showMyLocation(account, chatId, text);
+            if (!locationResponse.actions().isEmpty()) {
+                return locationResponse;
+            }
+        }
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() == Role.TM) {
             return tmMenuService.handleText(telegramUserId, chatId, text);
         }

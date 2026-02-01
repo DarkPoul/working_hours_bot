@@ -1,5 +1,6 @@
 package esvar.ua.workinghoursbot.service;
 
+import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.Location;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.Role;
@@ -44,12 +45,14 @@ public class SubstitutionService {
             SubstitutionRequestStatus.IN_PROGRESS,
             SubstitutionRequestStatus.WAITING_TM_APPROVAL
     );
+    private static final java.time.format.DateTimeFormatter DATE_FORMAT = java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy");
 
     private final SubstitutionRequestRepository substitutionRequestRepository;
     private final SubstitutionRequestCandidateRepository candidateRepository;
     private final UserAccountRepository userAccountRepository;
     private final ScheduleDayRepository scheduleDayRepository;
     private final SchedulePersistenceService schedulePersistenceService;
+    private final AuditService auditService;
 
     @Transactional(readOnly = true)
     public List<LocalDate> getPlannedWorkDates(Long telegramUserId) {
@@ -90,7 +93,11 @@ public class SubstitutionService {
     }
 
     @Transactional
-    public SubstitutionRequest createRequest(Long telegramUserId, LocalDate date, boolean urgent, UUID requestId) {
+    public SubstitutionRequest createRequest(Long telegramUserId,
+                                             LocalDate date,
+                                             boolean urgent,
+                                             UUID requestId,
+                                             String reason) {
         UserAccount requester = userAccountRepository.findByTelegramUserId(telegramUserId)
                 .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
         if (requester.getLocation() == null) {
@@ -123,6 +130,18 @@ public class SubstitutionService {
 
         log.info("Created substitution request. requestId={}, requesterId={}, date={}, urgent={}",
                 saved.getId(), requester.getId(), date, urgent);
+        auditService.log(
+                AuditEventType.SWAP_REQUEST_CREATED,
+                requester.getId(),
+                null,
+                requester.getLocation().getId(),
+                "%s %s | Локація: %s | Причина: %s".formatted(
+                        DATE_FORMAT.format(date),
+                        requester.getLastName(),
+                        requester.getLocation().getName(),
+                        reason == null ? "-" : reason
+                )
+        );
         return saved;
     }
 
@@ -306,6 +325,18 @@ public class SubstitutionService {
                 candidateRepository.save(candidateEntry);
 
                 log.info("Offer accepted. requestId={}, candidateId={}", requestId, candidate.getId());
+                auditService.log(
+                        AuditEventType.SWAP_CANDIDATE_SELECTED,
+                        candidate.getId(),
+                        request.getRequester().getId(),
+                        request.getLocation().getId(),
+                        "%s %s | Локація: %s | Кандидат: %s".formatted(
+                                DATE_FORMAT.format(request.getRequestDate()),
+                                request.getRequester().getLastName(),
+                                request.getLocation().getName(),
+                                candidate.getLastName()
+                        )
+                );
                 return AcceptOfferResult.approved(request, candidate, List.of());
             } catch (OptimisticLockingFailureException | CannotAcquireLockException ex) {
                 log.warn("Lock conflict on accept offer. requestId={}, candidateId={}, attempt={}",
@@ -337,7 +368,7 @@ public class SubstitutionService {
     }
 
     @Transactional
-    public SubstitutionRequest submitToTmApproval(UUID requestId) {
+    public SubstitutionRequest submitToTmApproval(UUID requestId, UUID actorUserId) {
         SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
         if (request.getStatus() != SubstitutionRequestStatus.WAITING_TM_APPROVAL) {
@@ -345,7 +376,19 @@ public class SubstitutionService {
         }
         Optional<UserAccount> tmOptional = findTmForRequest(request.getLocation());
         tmOptional.ifPresent(request::setTmUser);
-        return substitutionRequestRepository.save(request);
+        SubstitutionRequest saved = substitutionRequestRepository.save(request);
+        auditService.log(
+                AuditEventType.SWAP_SENT_TO_TM,
+                actorUserId,
+                request.getRequester().getId(),
+                request.getLocation().getId(),
+                "%s %s | Локація: %s".formatted(
+                        DATE_FORMAT.format(request.getRequestDate()),
+                        request.getRequester().getLastName(),
+                        request.getLocation().getName()
+                )
+        );
+        return saved;
     }
 
     @Transactional
@@ -380,6 +423,17 @@ public class SubstitutionService {
         markOtherCandidatesExpired(requestId);
 
         log.info("Request approved by TM. requestId={}, tmId={}", requestId, tmUser.getId());
+        auditService.log(
+                AuditEventType.SWAP_TM_APPROVED,
+                tmUser.getId(),
+                request.getRequester().getId(),
+                request.getLocation().getId(),
+                "%s %s | Локація: %s".formatted(
+                        DATE_FORMAT.format(request.getRequestDate()),
+                        request.getRequester().getLastName(),
+                        request.getLocation().getName()
+                )
+        );
         return saved;
     }
 
@@ -399,6 +453,17 @@ public class SubstitutionService {
         request.setProposedReplacementUser(null);
         SubstitutionRequest saved = substitutionRequestRepository.save(request);
         log.info("Request rejected by TM. requestId={}, tmId={}", requestId, tmUser.getId());
+        auditService.log(
+                AuditEventType.SWAP_TM_REJECTED,
+                tmUser.getId(),
+                request.getRequester().getId(),
+                request.getLocation().getId(),
+                "%s %s | Локація: %s".formatted(
+                        DATE_FORMAT.format(request.getRequestDate()),
+                        request.getRequester().getLastName(),
+                        request.getLocation().getName()
+                )
+        );
         return saved;
     }
 
@@ -417,6 +482,17 @@ public class SubstitutionService {
         request.setProposedReplacementUser(null);
         SubstitutionRequest saved = substitutionRequestRepository.save(request);
         markOtherCandidatesExpired(requestId);
+        auditService.log(
+                AuditEventType.SWAP_CANCELLED,
+                senior.getId(),
+                request.getRequester().getId(),
+                request.getLocation().getId(),
+                "%s %s | Локація: %s".formatted(
+                        DATE_FORMAT.format(request.getRequestDate()),
+                        request.getRequester().getLastName(),
+                        request.getLocation().getName()
+                )
+        );
         return saved;
     }
 

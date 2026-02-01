@@ -6,6 +6,7 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -30,6 +31,19 @@ public class ScheduleCalendarKeyboardBuilder {
     public InlineKeyboardMarkup buildViewKeyboard(YearMonth month) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         rows.add(buildViewNavigationRow(month));
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    public InlineKeyboardMarkup buildTmViewKeyboard(UUID locationId, YearMonth month) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        rows.add(List.of(
+                button("◀️", buildTmCallback(locationId, month.minusMonths(1))),
+                button("🔄", buildTmCallback(locationId, month)),
+                button("▶️", buildTmCallback(locationId, month.plusMonths(1)))
+        ));
+        rows.add(List.of(button("⬅️ До списку локацій", buildTmCallback(locationId, "BACK"))));
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
         return markup;
@@ -97,5 +111,13 @@ public class ScheduleCalendarKeyboardBuilder {
         button.setText(text);
         button.setCallbackData(callbackData);
         return button;
+    }
+
+    private String buildTmCallback(UUID locationId, YearMonth month) {
+        return "TM_SCHED:" + locationId + ":" + month;
+    }
+
+    private String buildTmCallback(UUID locationId, String action) {
+        return "TM_SCHED:" + locationId + ":" + action;
     }
 }

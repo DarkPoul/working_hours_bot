@@ -38,4 +38,7 @@ public class Location {
     @Column(name = "sort_order")
     private Integer sortOrder;
 
+    @Column(name = "schedule_edit_enabled", nullable = false)
+    private boolean scheduleEditEnabled;
+
 }

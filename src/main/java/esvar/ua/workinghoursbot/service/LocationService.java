@@ -40,6 +40,7 @@ public class LocationService {
         location.setName(name);
         location.setTmUserId(tmUserId);
         location.setActive(true);
+        location.setScheduleEditEnabled(false);
         location.setCode(generateUniqueCode());
         return locationRepository.save(location);
     }
