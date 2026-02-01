@@ -41,7 +41,8 @@ public class SubstitutionService {
     private static final Set<Role> CANDIDATE_ROLES = EnumSet.of(Role.SELLER, Role.SENIOR_SELLER);
     private static final Set<SubstitutionRequestStatus> ACTIVE_STATUSES = EnumSet.of(
             SubstitutionRequestStatus.NEW,
-            SubstitutionRequestStatus.IN_PROGRESS
+            SubstitutionRequestStatus.IN_PROGRESS,
+            SubstitutionRequestStatus.WAITING_TM_APPROVAL
     );
 
     private final SubstitutionRequestRepository substitutionRequestRepository;
@@ -135,20 +136,9 @@ public class SubstitutionService {
         UserAccount senior = userAccountRepository.findByTelegramUserId(seniorTelegramUserId)
                 .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
 
-        request.setStatus(SubstitutionRequestStatus.APPROVED);
-        request.setReplacementUser(senior);
-        request.setResolvedByUser(senior);
-        request.setResolvedAt(Instant.now());
+        request.setStatus(SubstitutionRequestStatus.WAITING_TM_APPROVAL);
+        request.setProposedReplacementUser(senior);
         SubstitutionRequest saved = substitutionRequestRepository.save(request);
-
-        schedulePersistenceService.applyReplacement(
-                request.getRequester().getTelegramUserId(),
-                senior.getTelegramUserId(),
-                request.getLocation().getId(),
-                request.getRequestDate()
-        );
-
-        markOtherCandidatesExpired(request.getId());
 
         log.info("Request approved by senior. requestId={}, seniorId={}", requestId, senior.getId());
         return saved;
@@ -182,6 +172,7 @@ public class SubstitutionService {
                 .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
         if (request.getStatus() == SubstitutionRequestStatus.APPROVED
                 || request.getStatus() == SubstitutionRequestStatus.REJECTED
+                || request.getStatus() == SubstitutionRequestStatus.WAITING_TM_APPROVAL
                 || request.getStatus() == SubstitutionRequestStatus.CANCELLED) {
             throw new IllegalStateException("Запит вже закрито.");
         }
@@ -292,14 +283,13 @@ public class SubstitutionService {
                     return AcceptOfferResult.alreadyApproved(request, candidate);
                 }
                 if (request.getStatus() == SubstitutionRequestStatus.REJECTED
+                        || request.getStatus() == SubstitutionRequestStatus.WAITING_TM_APPROVAL
                         || request.getStatus() == SubstitutionRequestStatus.CANCELLED) {
                     return AcceptOfferResult.closed(request, candidate);
                 }
 
-                request.setStatus(SubstitutionRequestStatus.APPROVED);
-                request.setReplacementUser(candidate);
-                request.setResolvedByUser(candidate);
-                request.setResolvedAt(Instant.now());
+                request.setStatus(SubstitutionRequestStatus.WAITING_TM_APPROVAL);
+                request.setProposedReplacementUser(candidate);
                 substitutionRequestRepository.save(request);
 
                 SubstitutionRequestCandidate candidateEntry = candidateRepository
@@ -315,17 +305,8 @@ public class SubstitutionService {
                 candidateEntry.setNotifiedChatId(candidate.getTelegramChatId());
                 candidateRepository.save(candidateEntry);
 
-                schedulePersistenceService.applyReplacement(
-                        request.getRequester().getTelegramUserId(),
-                        candidate.getTelegramUserId(),
-                        request.getLocation().getId(),
-                        request.getRequestDate()
-                );
-
-                List<SubstitutionRequestCandidate> others = markOtherCandidatesExpired(requestId);
-
                 log.info("Offer accepted. requestId={}, candidateId={}", requestId, candidate.getId());
-                return AcceptOfferResult.approved(request, candidate, others);
+                return AcceptOfferResult.approved(request, candidate, List.of());
             } catch (OptimisticLockingFailureException | CannotAcquireLockException ex) {
                 log.warn("Lock conflict on accept offer. requestId={}, candidateId={}, attempt={}",
                         requestId, candidate.getId(), attempt + 1);
@@ -339,6 +320,104 @@ public class SubstitutionService {
         SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
                 .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
         return AcceptOfferResult.alreadyApproved(request, candidate);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SubstitutionRequest> listActiveRequestsForSenior(UserAccount senior) {
+        List<SubstitutionRequestStatus> statuses = List.of(
+                SubstitutionRequestStatus.NEW,
+                SubstitutionRequestStatus.IN_PROGRESS,
+                SubstitutionRequestStatus.WAITING_TM_APPROVAL
+        );
+        Long tmUserId = senior.getLocation() == null ? null : senior.getLocation().getTmUserId();
+        if (tmUserId == null) {
+            return substitutionRequestRepository.findByStatusInOrderByRequestDateAsc(statuses);
+        }
+        return substitutionRequestRepository.findByStatusInAndLocation_TmUserIdOrderByRequestDateAsc(statuses, tmUserId);
+    }
+
+    @Transactional
+    public SubstitutionRequest submitToTmApproval(UUID requestId) {
+        SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
+        if (request.getStatus() != SubstitutionRequestStatus.WAITING_TM_APPROVAL) {
+            throw new IllegalStateException("Запит не потребує підтвердження ТМ.");
+        }
+        Optional<UserAccount> tmOptional = findTmForRequest(request.getLocation());
+        tmOptional.ifPresent(request::setTmUser);
+        return substitutionRequestRepository.save(request);
+    }
+
+    @Transactional
+    public SubstitutionRequest tmApprove(UUID requestId, Long tmTelegramUserId) {
+        UserAccount tmUser = userAccountRepository.findByTelegramUserId(tmTelegramUserId)
+                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
+        SubstitutionRequest request = substitutionRequestRepository.findWithLockById(requestId)
+                .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
+        if (request.getStatus() != SubstitutionRequestStatus.WAITING_TM_APPROVAL) {
+            throw new IllegalStateException("Запит вже закритий.");
+        }
+        UserAccount proposed = request.getProposedReplacementUser();
+        if (proposed == null) {
+            throw new IllegalStateException("Кандидат не знайдений.");
+        }
+        request.setStatus(SubstitutionRequestStatus.APPROVED);
+        request.setReplacementUser(proposed);
+        request.setResolvedByUser(tmUser);
+        request.setResolvedAt(Instant.now());
+        request.setTmUser(tmUser);
+        request.setTmDecision("APPROVE");
+        request.setTmDecidedAt(Instant.now());
+        SubstitutionRequest saved = substitutionRequestRepository.save(request);
+
+        schedulePersistenceService.applyReplacement(
+                request.getRequester().getTelegramUserId(),
+                proposed.getTelegramUserId(),
+                request.getLocation().getId(),
+                request.getRequestDate()
+        );
+
+        markOtherCandidatesExpired(requestId);
+
+        log.info("Request approved by TM. requestId={}, tmId={}", requestId, tmUser.getId());
+        return saved;
+    }
+
+    @Transactional
+    public SubstitutionRequest tmReject(UUID requestId, Long tmTelegramUserId) {
+        UserAccount tmUser = userAccountRepository.findByTelegramUserId(tmTelegramUserId)
+                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
+        SubstitutionRequest request = substitutionRequestRepository.findWithLockById(requestId)
+                .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
+        if (request.getStatus() != SubstitutionRequestStatus.WAITING_TM_APPROVAL) {
+            throw new IllegalStateException("Запит вже закритий.");
+        }
+        request.setStatus(SubstitutionRequestStatus.IN_PROGRESS);
+        request.setTmUser(tmUser);
+        request.setTmDecision("REJECT");
+        request.setTmDecidedAt(Instant.now());
+        request.setProposedReplacementUser(null);
+        SubstitutionRequest saved = substitutionRequestRepository.save(request);
+        log.info("Request rejected by TM. requestId={}, tmId={}", requestId, tmUser.getId());
+        return saved;
+    }
+
+    @Transactional
+    public SubstitutionRequest cancelByStayWorking(UUID requestId, Long seniorTelegramUserId) {
+        UserAccount senior = userAccountRepository.findByTelegramUserId(seniorTelegramUserId)
+                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
+        SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
+                .orElseThrow(() -> new IllegalStateException("Запит не знайдено."));
+        if (request.getStatus() != SubstitutionRequestStatus.IN_PROGRESS) {
+            throw new IllegalStateException("Запит вже закритий.");
+        }
+        request.setStatus(SubstitutionRequestStatus.CANCELLED);
+        request.setResolvedByUser(senior);
+        request.setResolvedAt(Instant.now());
+        request.setProposedReplacementUser(null);
+        SubstitutionRequest saved = substitutionRequestRepository.save(request);
+        markOtherCandidatesExpired(requestId);
+        return saved;
     }
 
     @Transactional
@@ -396,6 +475,25 @@ public class SubstitutionService {
                 RegistrationStatus.APPROVED,
                 Role.SENIOR_SELLER,
                 location.getId()
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<UserAccount> findTmForRequest(Location location) {
+        if (location == null) {
+            return Optional.empty();
+        }
+        Long tmUserId = location.getTmUserId();
+        if (tmUserId != null) {
+            return userAccountRepository.findFirstByStatusAndRoleAndLocation_TmUserIdOrderByCreatedAtAsc(
+                    RegistrationStatus.APPROVED,
+                    Role.TM,
+                    tmUserId
+            );
+        }
+        return userAccountRepository.findFirstByStatusAndRoleOrderByCreatedAtAsc(
+                RegistrationStatus.APPROVED,
+                Role.TM
         );
     }
 
@@ -462,7 +560,7 @@ public class SubstitutionService {
         public static AcceptOfferResult approved(SubstitutionRequest request,
                                                  UserAccount candidate,
                                                  List<SubstitutionRequestCandidate> otherCandidates) {
-            return new AcceptOfferResult(request, candidate, otherCandidates, Status.APPROVED);
+            return new AcceptOfferResult(request, candidate, otherCandidates, Status.WAITING_TM_APPROVAL);
         }
 
         public static AcceptOfferResult alreadyApproved(SubstitutionRequest request, UserAccount candidate) {
@@ -474,7 +572,7 @@ public class SubstitutionService {
         }
 
         public enum Status {
-            APPROVED,
+            WAITING_TM_APPROVAL,
             ALREADY_APPROVED,
             CLOSED
         }

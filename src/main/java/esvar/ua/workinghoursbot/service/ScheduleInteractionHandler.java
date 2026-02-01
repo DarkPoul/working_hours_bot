@@ -13,7 +13,6 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.BotApiMethod;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -24,7 +23,6 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@Transactional
 public class ScheduleInteractionHandler {
 
     private static final String COMMAND_EDIT = "✍️ Внести графік";
@@ -38,6 +36,7 @@ public class ScheduleInteractionHandler {
 
     private final UserAccountService userAccountService;
     private final SchedulePersistenceService schedulePersistenceService;
+    private final ScheduleService scheduleService;
     private final ScheduleSessionStore sessionStore;
     private final ScheduleCalendarRenderer calendarRenderer;
     private final ScheduleCalendarKeyboardBuilder keyboardBuilder;
@@ -156,7 +155,12 @@ public class ScheduleInteractionHandler {
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText(scheduleRenderer.renderMonthTable(location.getName(), month, workDays));
+        ScheduleService.ScheduleSummary summary = scheduleService.getMonthSummary(
+                account.getTelegramUserId(),
+                month.getYear(),
+                month.getMonthValue()
+        );
+        message.setText(scheduleRenderer.renderMonthTable(location.getName(), month, workDays, summary));
         message.setParseMode("HTML");
         message.setReplyMarkup(keyboardBuilder.buildViewKeyboard(month));
 
@@ -386,7 +390,12 @@ public class ScheduleInteractionHandler {
         EditMessageText edit = new EditMessageText();
         edit.setChatId(session.getCalendarChatId().toString());
         edit.setMessageId(session.getCalendarMessageId());
-        edit.setText(scheduleRenderer.renderMonthTable(location.getName(), target, workDays));
+        ScheduleService.ScheduleSummary summary = scheduleService.getMonthSummary(
+                telegramUserId,
+                target.getYear(),
+                target.getMonthValue()
+        );
+        edit.setText(scheduleRenderer.renderMonthTable(location.getName(), target, workDays, summary));
         edit.setParseMode("HTML");
         edit.setReplyMarkup(keyboardBuilder.buildViewKeyboard(target));
 

@@ -100,8 +100,8 @@ class SubstitutionServiceTest {
         );
 
         SubstitutionRequest updated = substitutionRequestRepository.findById(request.getId()).orElseThrow();
-        assertThat(updated.getStatus()).isEqualTo(SubstitutionRequestStatus.APPROVED);
-        assertThat(updated.getReplacementUser().getId())
+        assertThat(updated.getStatus()).isEqualTo(SubstitutionRequestStatus.WAITING_TM_APPROVAL);
+        assertThat(updated.getProposedReplacementUser().getId())
                 .isIn(candidateOne.getId(), candidateTwo.getId());
 
         List<SubstitutionRequestCandidate> candidates = candidateRepository.findByRequest_IdAndStateIn(
@@ -113,8 +113,8 @@ class SubstitutionServiceTest {
                 .count();
         assertThat(acceptedCount).isEqualTo(1);
 
-        assertThat(firstResult.getStatus()).isEqualTo(SubstitutionService.AcceptOfferResult.Status.APPROVED);
-        assertThat(secondResult.getStatus()).isEqualTo(SubstitutionService.AcceptOfferResult.Status.ALREADY_APPROVED);
+        assertThat(firstResult.getStatus()).isEqualTo(SubstitutionService.AcceptOfferResult.Status.WAITING_TM_APPROVAL);
+        assertThat(secondResult.getStatus()).isEqualTo(SubstitutionService.AcceptOfferResult.Status.CLOSED);
     }
 
     private Location createLocation(String name) {

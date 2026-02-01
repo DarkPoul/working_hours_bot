@@ -15,8 +15,18 @@ public class ScheduleRenderer {
     private static final List<String> WEEKDAY_LABELS = List.of("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд");
     private static final int CELL_WIDTH = 4;
 
-    public String renderMonthTable(String locationName, YearMonth month, Set<LocalDate> workDays) {
-        String header = "📍 " + locationName + "\n📅 " + formatMonth(month) + "\n\n";
+    public String renderMonthTable(String locationName,
+                                   YearMonth month,
+                                   Set<LocalDate> workDays,
+                                   ScheduleService.ScheduleSummary summary) {
+        StringBuilder header = new StringBuilder();
+        header.append("📍 ").append(locationName).append("\n");
+        header.append("📅 ").append(formatMonth(month)).append("\n");
+        if (summary != null) {
+            header.append("Робочих днів: ").append(summary.workingCount()).append("\n");
+            header.append("Вихідних днів: ").append(summary.offCount()).append("\n");
+        }
+        header.append("\n");
         StringBuilder table = new StringBuilder();
         table.append(buildHeaderRow()).append("\n");
         appendWeeks(table, month, workDays);
