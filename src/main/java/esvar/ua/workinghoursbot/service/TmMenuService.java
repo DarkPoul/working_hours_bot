@@ -40,6 +40,8 @@ public class TmMenuService {
     private static final String BUTTON_DISABLE_SCHEDULE_ALL = "Заборонити для всіх локацій";
     private static final String TM_SCHEDULE_CALLBACK = "TM_SCHED:";
     private static final String LOCATION_SEPARATOR = " | ";
+    private static final int LOCATION_NAME_MIN_LENGTH = 2;
+    private static final int LOCATION_NAME_MAX_LENGTH = 128;
 
     private final RegistrationRequestService registrationRequestService;
     private final LocationService locationService;
@@ -201,18 +203,13 @@ public class TmMenuService {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
             return showLocationsMenu(session, chatId);
         }
-        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
-        if (tmAccount.isEmpty()) {
-            return showLocationsMenu(session, chatId);
-        }
-        List<Location> locations = locationService.findActiveAvailableForTm(tmAccount.get().getId());
-        Optional<Location> location = findLocationByCode(locations, text);
-        if (location.isEmpty()) {
-            SendMessage message = buildMessage(chatId, "Оберіть локацію зі списку.");
-            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
+        String locationName = normalizeLocationName(text);
+        if (locationName == null) {
+            SendMessage message = buildMessage(chatId, "Вкажіть назву локації (2-128 символів).");
+            message.setReplyMarkup(KeyboardFactory.backKeyboard());
             return BotResponse.of(message);
         }
-        session.setSelectedLocationId(location.get().getId());
+        session.setDraftLocationName(locationName);
         session.setState(TmState.LOCATION_ADD_CONFIRM);
         tmSessionService.save(session);
         return showLocationAddConfirm(session, chatId);
@@ -220,22 +217,22 @@ public class TmMenuService {
 
     private BotResponse handleLocationAddConfirm(TmSession session, Long chatId, String text) {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
-            return showLocationsMenu(session, chatId);
+            return showLocationAddInput(session, chatId);
         }
         if (!BUTTON_YES.equalsIgnoreCase(text)) {
             return showLocationAddConfirm(session, chatId);
         }
 
-        UUID locationId = session.getSelectedLocationId();
-        if (locationId == null) {
+        String locationName = normalizeLocationName(session.getDraftLocationName());
+        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
+        if (locationName == null) {
             return showLocationAddInput(session, chatId);
         }
-        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
-        Optional<Location> location = locationService.findById(locationId).filter(Location::isActive);
-        if (tmAccount.isPresent() && location.isPresent()) {
-            userAccountService.addManagedLocation(tmAccount.get(), location.get());
+        if (tmAccount.isPresent()) {
+            Location location = locationService.createLocation(tmAccount.get().getTelegramUserId(), locationName);
+            userAccountService.addManagedLocation(tmAccount.get(), location);
         }
-        session.setSelectedLocationId(null);
+        session.setDraftLocationName(null);
         session.setState(TmState.LOCATIONS_MENU);
         tmSessionService.save(session);
 
@@ -373,26 +370,17 @@ public class TmMenuService {
     private BotResponse showLocationAddInput(TmSession session, Long chatId) {
         session.setState(TmState.LOCATION_ADD_INPUT);
         session.setSelectedLocationId(null);
+        session.setDraftLocationName(null);
         tmSessionService.save(session);
 
-        Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
-        List<Location> locations = tmAccount.map(tm -> locationService.findActiveAvailableForTm(tm.getId()))
-                .orElseGet(List::of);
-        if (locations.isEmpty()) {
-            SendMessage message = buildMessage(chatId, "Немає доступних локацій для додавання.");
-            message.setReplyMarkup(KeyboardFactory.backKeyboard());
-            return BotResponse.of(message);
-        }
-        SendMessage message = buildMessage(chatId, "Оберіть локацію для додавання:");
-        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
+        SendMessage message = buildMessage(chatId, "Введіть назву нової локації:");
+        message.setReplyMarkup(KeyboardFactory.backKeyboard());
         return BotResponse.of(message);
     }
 
     private BotResponse showLocationAddConfirm(TmSession session, Long chatId) {
-        UUID locationId = session.getSelectedLocationId();
-        String name = locationId == null
-                ? "-"
-                : locationService.findById(locationId).map(Location::getName).orElse("-");
+        String name = Optional.ofNullable(normalizeLocationName(session.getDraftLocationName()))
+                .orElse("-");
         String text = """
                 Додавання локації під контроль
                 Назва: %s
@@ -675,6 +663,17 @@ public class TmMenuService {
             return null;
         }
         return text.substring(index + LOCATION_SEPARATOR.length()).trim();
+    }
+
+    private static String normalizeLocationName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim().replaceAll("\\s+", " ");
+        if (trimmed.length() < LOCATION_NAME_MIN_LENGTH || trimmed.length() > LOCATION_NAME_MAX_LENGTH) {
+            return null;
+        }
+        return trimmed;
     }
 
     private static UUID parseUuid(String raw) {
