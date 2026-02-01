@@ -56,4 +56,12 @@ public class TmScheduleEditGateService {
         // якщо репозиторій – JpaRepository, save необов'язковий, але не завадить.
         return locationRepository.save(managed);
     }
+
+    @Transactional
+    public int updateScheduleEditFlagForAllLocations(UserAccount tmAccount, boolean newValue) {
+        if (tmAccount == null || tmAccount.getId() == null) {
+            throw new IllegalArgumentException("TM account and its id must not be null");
+        }
+        return locationRepository.updateScheduleEditEnabledByManagedTmId(tmAccount.getId(), newValue);
+    }
 }

@@ -36,6 +36,8 @@ public class TmMenuService {
     private static final String BUTTON_REJECT = "Заборонити";
     private static final String BUTTON_ENABLE_SCHEDULE = "Дозволити внесення графіку";
     private static final String BUTTON_DISABLE_SCHEDULE = "Заборонити внесення графіку";
+    private static final String BUTTON_ENABLE_SCHEDULE_ALL = "Дозволити для всіх локацій";
+    private static final String BUTTON_DISABLE_SCHEDULE_ALL = "Заборонити для всіх локацій";
     private static final String TM_SCHEDULE_CALLBACK = "TM_SCHED:";
     private static final String LOCATION_SEPARATOR = " | ";
 
@@ -316,6 +318,9 @@ public class TmMenuService {
         if (BUTTON_ENABLE_SCHEDULE.equalsIgnoreCase(text) || BUTTON_DISABLE_SCHEDULE.equalsIgnoreCase(text)) {
             return toggleScheduleEdit(session, chatId);
         }
+        if (BUTTON_ENABLE_SCHEDULE_ALL.equalsIgnoreCase(text) || BUTTON_DISABLE_SCHEDULE_ALL.equalsIgnoreCase(text)) {
+            return toggleScheduleEditForAll(session, chatId, text);
+        }
         return showScheduleLocationView(session, chatId);
     }
 
@@ -509,6 +514,43 @@ public class TmMenuService {
                 newValue ? "Внесення графіку дозволено." : "Внесення графіку заборонено.");
         SendMessage menu = buildMessage(chatId, "Керування внесенням графіку:");
         menu.setReplyMarkup(KeyboardFactory.tmScheduleLocationKeyboard(updated.isScheduleEditEnabled()));
+        return BotResponse.of(notice, menu);
+    }
+
+    private BotResponse toggleScheduleEditForAll(TmSession session, Long chatId, String actionText) {
+        UUID locationId = session.getSelectedLocationId();
+        if (locationId == null) {
+            return showScheduleLocationsList(session, chatId);
+        }
+        Optional<UserAccount> tmAccountOptional = resolveTmAccount(session.getTelegramUserId());
+        if (tmAccountOptional.isEmpty()) {
+            return showScheduleLocationsList(session, chatId);
+        }
+        boolean newValue = BUTTON_ENABLE_SCHEDULE_ALL.equalsIgnoreCase(actionText);
+        scheduleEditGateService.updateScheduleEditFlagForAllLocations(tmAccountOptional.get(), newValue);
+
+        UUID actorId = userAccountService.findByTelegramUserId(session.getTelegramUserId())
+                .map(UserAccount::getId)
+                .orElse(null);
+        auditService.log(
+                AuditEventType.SCHEDULE_EDIT_TOGGLED,
+                actorId,
+                null,
+                null,
+                "ТМ змінив доступ до графіку для всіх локацій: %s".formatted(
+                        newValue ? "дозволено" : "заборонено"
+                )
+        );
+
+        Location updatedLocation = locationService.findActiveByIdAndManagedTmId(
+                locationId,
+                tmAccountOptional.get().getId()
+        ).orElse(null);
+        boolean editEnabled = updatedLocation != null && updatedLocation.isScheduleEditEnabled();
+        SendMessage notice = buildMessage(chatId,
+                newValue ? "Внесення графіку дозволено для всіх локацій." : "Внесення графіку заборонено для всіх локацій.");
+        SendMessage menu = buildMessage(chatId, "Керування внесенням графіку:");
+        menu.setReplyMarkup(KeyboardFactory.tmScheduleLocationKeyboard(editEnabled));
         return BotResponse.of(notice, menu);
     }
 
