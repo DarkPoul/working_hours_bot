@@ -12,8 +12,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
@@ -22,7 +22,7 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 
 @Service
 @RequiredArgsConstructor
-@Slf4j
+@Transactional(readOnly = true)
 public class ScheduleInteractionService {
 
     private static final String BUTTON_EDIT = "🗓 Створити графік";
@@ -150,23 +150,10 @@ public class ScheduleInteractionService {
             return BotResponse.of(buildEditMessage(callbackQuery, location.getName(), draft));
         }
         if ("S".equals(action)) {
-            try {
-                scheduleService.saveMonth(telegramUserId, location.getId(), draft.getYearMonth(), draft.getWorkDays());
-                Set<LocalDate> persistedDays = scheduleService.loadWorkDays(
-                        telegramUserId,
-                        location.getId(),
-                        draft.getYearMonth()
-                );
-                draft.clear();
-                draft.getWorkDays().addAll(persistedDays);
-                draftStore.saveDraft(draft);
-                return BotResponse.of(buildEditMessage(callbackQuery, location.getName(), draft),
-                        answer(callbackQuery, "Збережено ✅"));
-            } catch (Exception ex) {
-                log.error("Failed to save schedule month. userId={}, locationId={}, month={}",
-                        telegramUserId, location.getId(), draft.getYearMonth(), ex);
-                return BotResponse.of(answer(callbackQuery, "Не вдалося зберегти графік."));
-            }
+            scheduleService.saveMonth(telegramUserId, location.getId(), draft.getYearMonth(), draft.getWorkDays());
+            draftStore.saveDraft(draft);
+            return BotResponse.of(buildEditMessage(callbackQuery, location.getName(), draft),
+                    answer(callbackQuery, "Збережено."));
         }
         if ("C".equals(action)) {
             draft.clear();

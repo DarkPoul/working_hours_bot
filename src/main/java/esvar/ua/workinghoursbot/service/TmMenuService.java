@@ -12,10 +12,12 @@ import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class TmMenuService {
 
     private static final String BUTTON_REQUESTS = "Заявки";
@@ -184,6 +186,7 @@ public class TmMenuService {
         if (!BUTTON_YES.equalsIgnoreCase(text)) {
             return showLocationDeleteConfirm(session, chatId);
         }
+
         UUID locationId = session.getSelectedLocationId();
         if (locationId != null) {
             locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId())
@@ -197,6 +200,17 @@ public class TmMenuService {
         SendMessage menu = buildLocationsMenuMessage(session, chatId);
         return BotResponse.of(done, menu);
     }
+
+    private BotResponse showLocationDeleteConfirm(TmSession session, Long chatId) {
+        UUID locationId = session.getSelectedLocationId();
+        if (locationId == null) {
+            return showLocationDeleteList(session, chatId);
+        }
+        return locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId())
+                .map(location -> showLocationDeleteConfirm(session, chatId, location))
+                .orElseGet(() -> showLocationDeleteList(session, chatId));
+    }
+
 
     private BotResponse handleScheduleLocationsList(TmSession session, Long chatId, String text) {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
@@ -320,15 +334,7 @@ public class TmMenuService {
         return BotResponse.of(message);
     }
 
-    private BotResponse showLocationDeleteConfirm(TmSession session, Long chatId) {
-        UUID locationId = session.getSelectedLocationId();
-        if (locationId == null) {
-            return showLocationDeleteList(session, chatId);
-        }
-        return locationService.findByIdAndTmUserId(locationId, session.getTelegramUserId())
-                .map(location -> showLocationDeleteConfirm(session, chatId, location))
-                .orElseGet(() -> showLocationDeleteList(session, chatId));
-    }
+
 
     private BotResponse showScheduleLocationsList(TmSession session, Long chatId) {
         session.setState(TmState.SCHEDULE_LOCATIONS_LIST);

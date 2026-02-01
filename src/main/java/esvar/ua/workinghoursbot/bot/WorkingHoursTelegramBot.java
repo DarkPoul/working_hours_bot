@@ -12,6 +12,7 @@ import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageTe
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 
 @Component
 @RequiredArgsConstructor
@@ -53,13 +54,25 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
             return;
         }
         if (action instanceof EditMessageText editMessageText) {
-            execute(editMessageText);
+            try {
+                execute(editMessageText);
+            } catch (TelegramApiRequestException e) {
+                if (e.getApiResponse().contains("message is not modified")) {
+                    log.debug("Message was not modified, ignoring exception as per Telegram API behavior.");
+                    return;
+                }
+                throw e;
+            }
             return;
         }
         execute(action);
     }
 
     private void handleExecutionFailure(BotApiMethod<?> action, TelegramApiException ex) {
+        if (ex instanceof TelegramApiRequestException apiEx && apiEx.getApiResponse().contains("message is not modified")) {
+            return;
+        }
+
         log.error("Failed to execute bot action", ex);
         if (action instanceof EditMessageText editMessageText) {
             SendMessage fallback = new SendMessage();

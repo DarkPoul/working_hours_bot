@@ -1,6 +1,7 @@
 package esvar.ua.workinghoursbot.domain;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -37,14 +38,16 @@ public class ScheduleDay {
     @Column(name = "location_id", nullable = false, length = 36)
     private UUID locationId;
 
-    @Column(name = "date", nullable = false)
+    @Convert(converter = LocalDateStringConverter.class)
+    @Column(name = "date", nullable = false, length = 10)
     private LocalDate date;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
     private ScheduleStatus status;
 
-    @Column(name = "updated_at", nullable = false, length = 32)
+    @JdbcTypeCode(SqlTypes.VARCHAR)
+    @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
     @PrePersist
