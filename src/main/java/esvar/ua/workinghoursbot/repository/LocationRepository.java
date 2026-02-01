@@ -44,4 +44,8 @@ public interface LocationRepository extends JpaRepository<Location, UUID> {
     List<Location> findActiveAvailableForTm(@Param("tmId") UUID tmId);
 
     boolean existsByCode(String code);
+
+    Optional<Boolean> findScheduleEditEnabledByLocation_Id(UUID id);
+
+    Optional<Boolean> findScheduleEditEnabledByAccount_Id(UUID id);
 }
