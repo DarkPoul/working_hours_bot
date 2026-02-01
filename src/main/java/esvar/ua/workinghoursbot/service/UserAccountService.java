@@ -21,4 +21,9 @@ public class UserAccountService {
     public UserAccount save(UserAccount userAccount) {
         return userAccountRepository.save(userAccount);
     }
+
+    @Transactional
+    public void deleteByTelegramUserId(Long telegramUserId) {
+        userAccountRepository.deleteByTelegramUserId(telegramUserId);
+    }
 }
