@@ -22,7 +22,7 @@ public class TmScheduleEditGateService {
         // якщо в account є locationId — краще так
         if (account.getLocation() != null && account.getLocation().getId() != null) {
             return locationRepository
-                    .findScheduleEditEnabledByLocation_Id(account.getLocation().getId())
+                    .findScheduleEditEnabledById(account.getLocation().getId())
                     .orElse(false);
         }
 
