@@ -58,6 +58,12 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
             Role role
     );
 
+    long countByStatusAndRoleAndLocation_Id(
+            RegistrationStatus status,
+            Role role,
+            UUID locationId
+    );
+
     @Query("""
             select u from UserAccount u
             join u.managedLocations l
@@ -98,6 +104,18 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
     List<UserAccount> findByStatusAndRoleInAndLocationManagedByTm(
             @Param("status") RegistrationStatus status,
             @Param("roles") List<Role> roles,
+            @Param("tmId") UUID tmId
+    );
+
+    @Query("""
+            select count(ua) from UserAccount ua
+            where ua.status = :status
+            and ua.role = :role
+            and ua.location in (select l from UserAccount tm join tm.managedLocations l where tm.id = :tmId)
+            """)
+    long countByStatusAndRoleAndLocationManagedByTm(
+            @Param("status") RegistrationStatus status,
+            @Param("role") Role role,
             @Param("tmId") UUID tmId
     );
 

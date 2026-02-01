@@ -2,6 +2,7 @@ package esvar.ua.workinghoursbot.service;
 
 import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
+import esvar.ua.workinghoursbot.domain.Role;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.repository.UserAccountRepository;
 import java.time.Instant;
@@ -35,7 +36,40 @@ public class RegistrationRequestService {
     }
 
     @Transactional
-    public UserAccount approve(UserAccount request, Long approvedByTelegramUserId) {
+    public ApprovalResult approve(UserAccount request, Long approvedByTelegramUserId) {
+        Optional<UserAccount> tmAccount = userAccountRepository.findByTelegramUserId(approvedByTelegramUserId);
+        if (request.getRole() == Role.SELLER && request.getLocation() != null) {
+            long approvedSellers = userAccountRepository.countByStatusAndRoleAndLocation_Id(
+                    RegistrationStatus.APPROVED,
+                    Role.SELLER,
+                    request.getLocation().getId()
+            );
+            if (approvedSellers >= 2) {
+                return rejectWithReason(
+                        request,
+                        approvedByTelegramUserId,
+                        RegistrationStatus.REJECTED,
+                        "На цій локації вже є 2 продавці. Заявку відхилено."
+                );
+            }
+        }
+
+        if (request.getRole() == Role.SENIOR_SELLER && tmAccount.isPresent()) {
+            long approvedSeniorSellers = userAccountRepository.countByStatusAndRoleAndLocationManagedByTm(
+                    RegistrationStatus.APPROVED,
+                    Role.SENIOR_SELLER,
+                    tmAccount.get().getId()
+            );
+            if (approvedSeniorSellers >= 1) {
+                return rejectWithReason(
+                        request,
+                        approvedByTelegramUserId,
+                        RegistrationStatus.BLOCKED,
+                        "У локаціях ТМ вже є старший продавець. Заявку заблоковано."
+                );
+            }
+        }
+
         request.setStatus(RegistrationStatus.APPROVED);
         request.setApprovedByTelegramUserId(approvedByTelegramUserId);
         request.setApprovedAt(Instant.now());
@@ -51,12 +85,28 @@ public class RegistrationRequestService {
                                 saved.getLocation() != null ? saved.getLocation().getName() : "-"
                         )
                 ));
-        return saved;
+        return new ApprovalResult(saved, true, "Готово. Працівника додано.");
     }
 
     @Transactional
     public UserAccount reject(UserAccount request) {
         request.setStatus(RegistrationStatus.REJECTED);
         return userAccountRepository.save(request);
+    }
+
+    private ApprovalResult rejectWithReason(
+            UserAccount request,
+            Long approvedByTelegramUserId,
+            RegistrationStatus status,
+            String message
+    ) {
+        request.setStatus(status);
+        request.setApprovedByTelegramUserId(approvedByTelegramUserId);
+        request.setApprovedAt(Instant.now());
+        UserAccount saved = userAccountRepository.save(request);
+        return new ApprovalResult(saved, false, message);
+    }
+
+    public record ApprovalResult(UserAccount account, boolean approved, String message) {
     }
 }
