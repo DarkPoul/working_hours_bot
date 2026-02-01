@@ -84,10 +84,12 @@ public final class KeyboardFactory {
     }
 
     public static ReplyKeyboardMarkup mainMenuKeyboard() {
-        KeyboardRow row1 = singleButtonRow("🗓 Створити графік");
-        KeyboardRow row2 = singleButtonRow("📅 Мій графік");
+        KeyboardRow row1 = singleButtonRow("✍️ Внести графік");
+        KeyboardRow row2 = singleButtonRow("🗓 Мій графік");
+        KeyboardRow row3 = singleButtonRow("🏢 Локація");
+        KeyboardRow row4 = singleButtonRow("🔁 Підміна");
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2));
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3, row4));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;
@@ -167,8 +169,8 @@ public final class KeyboardFactory {
         rows.add(row1);
 
         KeyboardRow row2 = new KeyboardRow();
-        row2.add(new KeyboardButton("◀️"));
-        row2.add(new KeyboardButton("▶️"));
+        row2.add(new KeyboardButton("◀️ Попередній місяць"));
+        row2.add(new KeyboardButton("▶️ Наступний місяць"));
         rows.add(row2);
 
         KeyboardRow row3 = singleButtonRow("⬅️ Назад");

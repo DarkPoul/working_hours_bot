@@ -1,7 +1,7 @@
 package esvar.ua.workinghoursbot.bot;
 
 import esvar.ua.workinghoursbot.config.BotProperties;
-import esvar.ua.workinghoursbot.service.ScheduleDraftStore;
+import esvar.ua.workinghoursbot.service.ScheduleSessionStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -21,7 +21,7 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
 
     private final BotProperties botProperties;
     private final UpdateRouter updateRouter;
-    private final ScheduleDraftStore scheduleDraftStore;
+    private final ScheduleSessionStore scheduleSessionStore;
 
     @Override
     public String getBotUsername() {
@@ -49,7 +49,7 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
         if (action instanceof SendMessage sendMessage) {
             Message sent = execute(sendMessage);
             if (sent != null) {
-                scheduleDraftStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
+                scheduleSessionStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
             }
             return;
         }
@@ -83,7 +83,7 @@ public class WorkingHoursTelegramBot extends TelegramLongPollingBot {
             try {
                 Message sent = execute(fallback);
                 if (sent != null) {
-                    scheduleDraftStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
+                    scheduleSessionStore.updateMessageIdForChat(sent.getChatId(), sent.getMessageId());
                 }
             } catch (TelegramApiException nested) {
                 log.error("Failed to execute fallback bot action", nested);
