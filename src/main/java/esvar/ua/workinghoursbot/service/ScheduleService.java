@@ -51,6 +51,8 @@ public class ScheduleService {
         log.debug("Deleted existing schedule days. userId={}, locationId={}, month={}, deletedCount={}",
                 telegramUserId, locationId, month, deleted);
         if (workDays == null || workDays.isEmpty()) {
+            scheduleDayRepository.flush();
+            log.debug("No work days to save for userId={}, locationId={}, month={}", telegramUserId, locationId, month);
             return;
         }
         List<ScheduleDay> toSave = workDays.stream()
@@ -64,7 +66,10 @@ public class ScheduleService {
                     return day;
                 })
                 .toList();
+        log.debug("Prepared schedule days to save. userId={}, locationId={}, month={}, filteredCount={}",
+                telegramUserId, locationId, month, toSave.size());
         List<ScheduleDay> saved = scheduleDayRepository.saveAll(toSave);
+        scheduleDayRepository.flush();
         log.debug("Inserted schedule days. userId={}, locationId={}, month={}, insertedCount={}",
                 telegramUserId, locationId, month, saved.size());
     }
