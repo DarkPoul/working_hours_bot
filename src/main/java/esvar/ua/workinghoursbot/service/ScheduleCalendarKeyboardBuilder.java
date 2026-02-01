@@ -14,6 +14,8 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKe
 public class ScheduleCalendarKeyboardBuilder {
 
     private static final String CALLBACK_NOOP = "noop";
+    private static final String EMPTY_CELL = "·";
+    private static final boolean USE_LEADING_ZERO = true;
 
     public InlineKeyboardMarkup buildEditKeyboard(YearMonth month, Set<LocalDate> workDays) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -57,12 +59,12 @@ public class ScheduleCalendarKeyboardBuilder {
             List<InlineKeyboardButton> row = new ArrayList<>();
             for (int dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
                 if (week == 0 && dayOfWeek < firstWeekdayIndex || dayCounter > daysInMonth) {
-                    row.add(button("·", CALLBACK_NOOP));
+                    row.add(button(EMPTY_CELL, CALLBACK_NOOP));
                     continue;
                 }
                 LocalDate date = month.atDay(dayCounter);
                 boolean isWork = workDays != null && workDays.contains(date);
-                String label = String.format("%02d%s", dayCounter, isWork ? "✅" : "❌");
+                String label = formatDayLabel(dayCounter, isWork);
                 row.add(button(label, "E:D:" + date));
                 dayCounter++;
             }
@@ -97,6 +99,11 @@ public class ScheduleCalendarKeyboardBuilder {
     private String formatMonthLabel(YearMonth month) {
         return month.getMonth().getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.forLanguageTag("uk"))
                 + " " + month.getYear();
+    }
+
+    private String formatDayLabel(int day, boolean isWork) {
+        String dayText = USE_LEADING_ZERO && day < 10 ? "0" + day : Integer.toString(day);
+        return dayText + (isWork ? "✅" : "❌");
     }
 
     private InlineKeyboardButton button(String text, String callbackData) {
