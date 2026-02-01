@@ -21,9 +21,7 @@ public class ScheduleCalendarKeyboardBuilder {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         rows.add(buildWeekdayHeader());
         rows.addAll(buildCalendarRows(month, workDays));
-        rows.add(buildControlRow("🗑 Очистити", "E:C", "❌ Відміна", "E:X"));
-        rows.add(buildMonthNavigationRow(month));
-        rows.add(List.of(button("💾 Зберегти", "E:S")));
+        // Кнопки Очистити / Відміна / < / > / Зберегти прибрані з inline‑календаря
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         markup.setKeyboard(rows);
         return markup;
@@ -74,18 +72,6 @@ public class ScheduleCalendarKeyboardBuilder {
             }
         }
         return rows;
-    }
-
-    private List<InlineKeyboardButton> buildControlRow(String leftLabel, String leftAction, String rightLabel, String rightAction) {
-        return List.of(button(leftLabel, leftAction), button(rightLabel, rightAction));
-    }
-
-    private List<InlineKeyboardButton> buildMonthNavigationRow(YearMonth month) {
-        return List.of(
-                button("◀️", "E:P"),
-                button(formatMonthLabel(month), CALLBACK_NOOP),
-                button("▶️", "E:N")
-        );
     }
 
     private List<InlineKeyboardButton> buildViewNavigationRow(YearMonth month) {

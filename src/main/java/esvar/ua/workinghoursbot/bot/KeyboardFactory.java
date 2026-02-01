@@ -1,5 +1,6 @@
 package esvar.ua.workinghoursbot.bot;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
@@ -153,4 +154,30 @@ public final class KeyboardFactory {
         markup.setOneTimeKeyboard(false);
         return markup;
     }
+    /**
+     * Меню для редагування графіка:
+     * 🗑 Очистити, ◀️, ▶️, 💾 Зберегти, ⬅️ Назад
+     */
+    public static ReplyKeyboardMarkup scheduleEditMenuKeyboard() {
+        List<KeyboardRow> rows = new ArrayList<>();
+
+        KeyboardRow row1 = new KeyboardRow();
+        row1.add(new KeyboardButton("🗑 Очистити"));
+        row1.add(new KeyboardButton("💾 Зберегти"));
+        rows.add(row1);
+
+        KeyboardRow row2 = new KeyboardRow();
+        row2.add(new KeyboardButton("◀️"));
+        row2.add(new KeyboardButton("▶️"));
+        rows.add(row2);
+
+        KeyboardRow row3 = singleButtonRow("⬅️ Назад");
+        rows.add(row3);
+
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(rows);
+        markup.setResizeKeyboard(true);
+        markup.setOneTimeKeyboard(false);
+        return markup;
+    }
+
 }

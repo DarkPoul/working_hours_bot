@@ -40,21 +40,27 @@ public class ScheduleService {
         LocalDate start = month.atDay(1);
         LocalDate end = month.atEndOfMonth();
         int workDaysCount = workDays == null ? 0 : workDays.size();
+
         log.debug("Saving schedule month. userId={}, locationId={}, month={}, start={}, end={}, workDaysCount={}",
                 telegramUserId, locationId, month, start, end, workDaysCount);
-        long deleted = scheduleDayRepository.deleteByTelegramUserIdAndLocationIdAndDateBetween(
+
+        // 1. Видаляємо існуючі записи
+        scheduleDayRepository.deleteByTelegramUserIdAndLocationIdAndDateBetween(
                 telegramUserId,
                 locationId,
                 start,
                 end
         );
-        log.debug("Deleted existing schedule days. userId={}, locationId={}, month={}, deletedCount={}",
-                telegramUserId, locationId, month, deleted);
+
+        // 2. ВАЖЛИВО: Викликаємо flush(), щоб Hibernate виконав DELETE в SQLite перед INSERT
+        scheduleDayRepository.flush();
+
         if (workDays == null || workDays.isEmpty()) {
-            scheduleDayRepository.flush();
             log.debug("No work days to save for userId={}, locationId={}, month={}", telegramUserId, locationId, month);
             return;
         }
+
+        // 3. Готуємо нові записи
         List<ScheduleDay> toSave = workDays.stream()
                 .filter(date -> !date.isBefore(start) && !date.isAfter(end))
                 .map(date -> {
@@ -66,11 +72,15 @@ public class ScheduleService {
                     return day;
                 })
                 .toList();
+
         log.debug("Prepared schedule days to save. userId={}, locationId={}, month={}, filteredCount={}",
                 telegramUserId, locationId, month, toSave.size());
-        List<ScheduleDay> saved = scheduleDayRepository.saveAll(toSave);
+
+        // 4. Зберігаємо нові дані
+        scheduleDayRepository.saveAll(toSave);
         scheduleDayRepository.flush();
+
         log.debug("Inserted schedule days. userId={}, locationId={}, month={}, insertedCount={}",
-                telegramUserId, locationId, month, saved.size());
+                telegramUserId, locationId, month, toSave.size());
     }
 }
