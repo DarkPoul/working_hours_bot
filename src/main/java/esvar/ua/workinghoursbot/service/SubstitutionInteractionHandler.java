@@ -789,12 +789,12 @@ public class SubstitutionInteractionHandler {
 
     List<BotApiMethod<?>> notifyTmApproval(SubstitutionRequest request) {
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        UserAccount tmUser = request.getTmUser();
+        UserAccount tmUser = null;
+        if (request.getTmUserId() != null) {
+            tmUser = userAccountService.findByTelegramUserId(request.getTmUserId()).orElse(null);
+        }
         if (tmUser == null) {
-            Optional<UserAccount> tmOptional = substitutionService.findTmForRequest(request.getLocation());
-            if (tmOptional.isPresent()) {
-                tmUser = tmOptional.get();
-            }
+            tmUser = substitutionService.findTmForRequest(request.getLocation()).orElse(null);
         }
         if (tmUser == null) {
             log.warn("TM not found for substitution approval. requesterId={}, locationId={}",

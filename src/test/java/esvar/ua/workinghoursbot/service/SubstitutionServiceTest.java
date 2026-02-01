@@ -52,6 +52,9 @@ class SubstitutionServiceTest {
     @Autowired
     private SubstitutionInteractionHandler substitutionInteractionHandler;
 
+    @Autowired
+    private SubstitutionNotificationService substitutionNotificationService;
+
     @Test
     void findCandidatesFiltersWorkingUsers() {
         Location location = createLocation("L1");
@@ -156,11 +159,89 @@ class SubstitutionServiceTest {
                 .isEqualTo("⚠️ Не знайдено ТМ для підтвердження підміни. Зверніться до адміністратора.");
     }
 
+    @Test
+    void findSeniorPrefersLocationMatch() {
+        Location location = createLocation("L5");
+        UserAccount localSenior = createUser("Senior", 901L, location, Role.SENIOR_SELLER);
+        createUser("Other Senior", 902L, null, Role.SENIOR_SELLER);
+
+        SubstitutionService.SeniorLookupResult result = substitutionService.findSeniorForRequestWithDiagnostics(
+                location,
+                location.getTmUserId()
+        );
+
+        assertThat(result.senior()).isPresent();
+        assertThat(result.senior().get().getId()).isEqualTo(localSenior.getId());
+        assertThat(result.stage()).isEqualTo(SubstitutionService.SeniorLookupStage.LOCATION);
+    }
+
+    @Test
+    void findSeniorFallsBackToTmApprover() {
+        Long tmTelegramUserId = 777L;
+        Location location = createLocation("L6", tmTelegramUserId);
+        UserAccount tmApprovedSenior = createUser("Senior2", 903L, null, Role.SENIOR_SELLER);
+        tmApprovedSenior.setApprovedByTelegramUserId(tmTelegramUserId);
+        userAccountRepository.save(tmApprovedSenior);
+
+        SubstitutionService.SeniorLookupResult result = substitutionService.findSeniorForRequestWithDiagnostics(
+                location,
+                tmTelegramUserId
+        );
+
+        assertThat(result.senior()).isPresent();
+        assertThat(result.senior().get().getId()).isEqualTo(tmApprovedSenior.getId());
+        assertThat(result.stage()).isEqualTo(SubstitutionService.SeniorLookupStage.TM_APPROVER);
+    }
+
+    @Test
+    void findSeniorReturnsEmptyWhenNoneFound() {
+        Location location = createLocation("L7", 888L);
+
+        SubstitutionService.SeniorLookupResult result = substitutionService.findSeniorForRequestWithDiagnostics(
+                location,
+                location.getTmUserId()
+        );
+
+        assertThat(result.senior()).isEmpty();
+        assertThat(result.stage()).isEqualTo(SubstitutionService.SeniorLookupStage.NONE);
+    }
+
+    @Test
+    void notifySeniorReturnsRequesterWarningWhenMissing() {
+        candidateRepository.deleteAll();
+        substitutionRequestRepository.deleteAll();
+        scheduleDayRepository.deleteAll();
+        userAccountRepository.deleteAll();
+        locationRepository.deleteAll();
+
+        Location location = createLocation("L8");
+        UserAccount requester = createUser("Requester4", 1000L, location, Role.SELLER);
+        SubstitutionRequest request = createRequest(
+                requester,
+                location,
+                LocalDate.now().plusDays(1),
+                SubstitutionRequestStatus.NEW
+        );
+
+        List<org.telegram.telegrambots.meta.api.methods.BotApiMethod<?>> actions =
+                substitutionNotificationService.notifySeniorAboutRequest(request);
+
+        assertThat(actions).hasSize(1);
+        SendMessage message = (SendMessage) actions.getFirst();
+        assertThat(message.getText())
+                .isEqualTo("⚠️ Немає старшого продавця для вашого ТМ. Зверніться до адміністратора.");
+    }
+
     private Location createLocation(String name) {
+        return createLocation(name, null);
+    }
+
+    private Location createLocation(String name, Long tmUserId) {
         Location location = new Location();
         location.setId(UUID.randomUUID());
         location.setCode(name);
         location.setName(name);
+        location.setTmUserId(tmUserId);
         return locationRepository.save(location);
     }
 
