@@ -10,11 +10,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScheduleService {
 
     private final ScheduleDayRepository scheduleDayRepository;
@@ -37,12 +39,17 @@ public class ScheduleService {
     public void saveMonth(Long telegramUserId, UUID locationId, YearMonth month, Set<LocalDate> workDays) {
         LocalDate start = month.atDay(1);
         LocalDate end = month.atEndOfMonth();
-        scheduleDayRepository.deleteByTelegramUserIdAndLocationIdAndDateBetween(
+        int workDaysCount = workDays == null ? 0 : workDays.size();
+        log.debug("Saving schedule month. userId={}, locationId={}, month={}, start={}, end={}, workDaysCount={}",
+                telegramUserId, locationId, month, start, end, workDaysCount);
+        long deleted = scheduleDayRepository.deleteByTelegramUserIdAndLocationIdAndDateBetween(
                 telegramUserId,
                 locationId,
                 start,
                 end
         );
+        log.debug("Deleted existing schedule days. userId={}, locationId={}, month={}, deletedCount={}",
+                telegramUserId, locationId, month, deleted);
         if (workDays == null || workDays.isEmpty()) {
             return;
         }
@@ -57,6 +64,8 @@ public class ScheduleService {
                     return day;
                 })
                 .toList();
-        scheduleDayRepository.saveAll(toSave);
+        List<ScheduleDay> saved = scheduleDayRepository.saveAll(toSave);
+        log.debug("Inserted schedule days. userId={}, locationId={}, month={}, insertedCount={}",
+                telegramUserId, locationId, month, saved.size());
     }
 }

@@ -57,7 +57,7 @@ public class ScheduleCalendarKeyboardBuilder {
             List<InlineKeyboardButton> row = new ArrayList<>();
             for (int dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
                 if (week == 0 && dayOfWeek < firstWeekdayIndex || dayCounter > daysInMonth) {
-                    row.add(button(" ", CALLBACK_NOOP));
+                    row.add(button("·", CALLBACK_NOOP));
                     continue;
                 }
                 LocalDate date = month.atDay(dayCounter);
