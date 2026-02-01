@@ -165,7 +165,7 @@ public final class KeyboardFactory {
 
     public static ReplyKeyboardMarkup tmLocationsMenuKeyboard() {
         KeyboardRow row1 = singleButtonRow("Додати локацію");
-        KeyboardRow row2 = singleButtonRow("Видалити локацію");
+        KeyboardRow row2 = singleButtonRow("Прибрати локацію");
         KeyboardRow row3 = singleButtonRow("Назад");
 
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));

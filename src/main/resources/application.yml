@@ -23,6 +23,9 @@ audit:
   enabled: true
   chat-id: ${AUDIT_CHAT_ID:0}
 
+tm:
+  pin: ${TM_PIN:}
+
 logging:
   level:
     esvar.ua.workinghoursbot: INFO

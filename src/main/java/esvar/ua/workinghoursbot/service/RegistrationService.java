@@ -14,6 +14,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -38,6 +39,9 @@ public class RegistrationService {
     private final LocationService locationService;
     private final MainMenuService mainMenuService;
     private final AuditService auditService;
+
+    @Value("${tm.pin:}")
+    private String tmPin;
 
     public BotResponse startRegistration(Long telegramUserId, Long chatId) {
         Optional<UserAccount> existingAccount = userAccountService.findByTelegramUserId(telegramUserId);
@@ -109,6 +113,10 @@ public class RegistrationService {
             return handleLocationSelection(session, chatId, text);
         }
 
+        if (session.getState() == RegistrationState.ENTER_TM_PIN) {
+            return handleTmPin(session, chatId, text);
+        }
+
         SendMessage message = buildMessage(chatId, "Будь ласка, використовуйте кнопки для вибору.");
         return BotResponse.of(message);
     }
@@ -132,6 +140,15 @@ public class RegistrationService {
         }
 
         session.setDraftRole(role);
+        if (role == Role.TM) {
+            session.setState(RegistrationState.ENTER_TM_PIN);
+            registrationSessionService.save(session);
+            log.info("Registration state transition telegramUserId={} -> ENTER_TM_PIN", session.getTelegramUserId());
+            SendMessage message = buildMessage(chatId, "Введіть PIN для ролі ТМ.");
+            message.setReplyMarkup(KeyboardFactory.backKeyboard());
+            return BotResponse.of(message);
+        }
+
         session.setState(RegistrationState.CHOOSE_LOCATION);
         session.setDraftLocationPage(0);
         registrationSessionService.save(session);
@@ -203,6 +220,58 @@ public class RegistrationService {
         account.setRole(session.getDraftRole());
         account.setLocation(location);
         account.setStatus(RegistrationStatus.PENDING_APPROVAL);
+        return userAccountService.save(account);
+    }
+
+    private BotResponse handleTmPin(RegistrationSession session, Long chatId, String text) {
+        if (BUTTON_BACK.equalsIgnoreCase(text)) {
+            session.setState(RegistrationState.CHOOSE_ROLE);
+            session.setDraftRole(null);
+            registrationSessionService.save(session);
+            SendMessage message = buildMessage(chatId, "Оберіть вашу роль:");
+            message.setReplyMarkup(KeyboardFactory.roleMenuKeyboard());
+            return BotResponse.of(message);
+        }
+        if (tmPin == null || tmPin.isBlank()) {
+            SendMessage response = buildMessage(chatId, "PIN для ТМ не налаштований. Зверніться до адміністратора.");
+            response.setReplyMarkup(KeyboardFactory.backKeyboard());
+            return BotResponse.of(response);
+        }
+        if (!tmPin.equals(text == null ? "" : text.trim())) {
+            auditService.log(
+                    AuditEventType.TM_PIN_FAILED,
+                    null,
+                    null,
+                    null,
+                    "TelegramUserId: " + session.getTelegramUserId()
+            );
+            SendMessage response = buildMessage(chatId, "Невірний PIN. Спробуйте ще раз.");
+            response.setReplyMarkup(KeyboardFactory.backKeyboard());
+            return BotResponse.of(response);
+        }
+
+        UserAccount account = createTmAccount(session, chatId);
+        registrationSessionService.deleteByTelegramUserId(session.getTelegramUserId());
+        auditService.log(
+                AuditEventType.TM_PIN_SUCCESS,
+                account.getId(),
+                null,
+                null,
+                "Користувач: " + account.getLastName()
+        );
+        SendMessage response = buildMessage(chatId,
+                "Роль ТМ активовано. Додайте локації під контроль у меню: Локації → Додати локацію.");
+        response.setReplyMarkup(KeyboardFactory.tmMainMenuKeyboard());
+        return BotResponse.of(response);
+    }
+
+    private UserAccount createTmAccount(RegistrationSession session, Long chatId) {
+        UserAccount account = new UserAccount();
+        account.setTelegramUserId(session.getTelegramUserId());
+        account.setTelegramChatId(chatId);
+        account.setLastName(session.getDraftLastName());
+        account.setRole(Role.TM);
+        account.setStatus(RegistrationStatus.APPROVED);
         return userAccountService.save(account);
     }
 

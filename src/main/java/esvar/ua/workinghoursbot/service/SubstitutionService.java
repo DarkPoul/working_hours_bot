@@ -222,21 +222,20 @@ public class SubstitutionService {
                     request.getLocation().getId()
             );
         } else if (scope == SubstitutionRequestScope.TM) {
-            Long tmUserId = request.getLocation().getTmUserId();
-            if (tmUserId == null && senior != null && senior.getLocation() != null) {
-                tmUserId = senior.getLocation().getTmUserId();
-            }
-            if (tmUserId == null) {
+            Optional<UserAccount> tmOptional = userAccountRepository.findActiveTmByManagedLocation(
+                    request.getLocation().getId()
+            );
+            if (tmOptional.isEmpty()) {
                 pool = userAccountRepository.findByStatusAndRoleInAndLocation_Id(
                         RegistrationStatus.APPROVED,
                         List.copyOf(CANDIDATE_ROLES),
                         request.getLocation().getId()
                 );
             } else {
-                pool = userAccountRepository.findByStatusAndRoleInAndLocation_TmUserId(
+                pool = userAccountRepository.findByStatusAndRoleInAndLocationManagedByTm(
                         RegistrationStatus.APPROVED,
                         List.copyOf(CANDIDATE_ROLES),
-                        tmUserId
+                        tmOptional.get().getId()
                 );
             }
         } else {
@@ -360,11 +359,22 @@ public class SubstitutionService {
                 SubstitutionRequestStatus.IN_PROGRESS,
                 SubstitutionRequestStatus.WAITING_TM_APPROVAL
         );
-        Long tmUserId = senior.getLocation() == null ? null : senior.getLocation().getTmUserId();
-        if (tmUserId == null) {
+        if (senior.getLocation() == null) {
             return substitutionRequestRepository.findByStatusInOrderByRequestDateAsc(statuses);
         }
-        return substitutionRequestRepository.findByStatusInAndLocation_TmUserIdOrderByRequestDateAsc(statuses, tmUserId);
+        Optional<UserAccount> tmOptional = userAccountRepository.findActiveTmByManagedLocation(
+                senior.getLocation().getId()
+        );
+        if (tmOptional.isEmpty()) {
+            return substitutionRequestRepository.findByStatusInAndLocation_IdOrderByRequestDateAsc(
+                    statuses,
+                    senior.getLocation().getId()
+            );
+        }
+        return substitutionRequestRepository.findByStatusInAndLocationManagedByTmOrderByRequestDateAsc(
+                statuses,
+                tmOptional.get().getId()
+        );
     }
 
     @Transactional
@@ -535,13 +545,13 @@ public class SubstitutionService {
         if (location == null) {
             return Optional.empty();
         }
-        Long tmUserId = location.getTmUserId();
-        if (tmUserId != null) {
+        Optional<UserAccount> tmOptional = userAccountRepository.findActiveTmByManagedLocation(location.getId());
+        if (tmOptional.isPresent()) {
             Optional<UserAccount> senior = userAccountRepository
-                    .findFirstByStatusAndRoleAndLocation_TmUserIdOrderByCreatedAtAsc(
+                    .findFirstByStatusAndRoleAndLocationManagedByTmOrderByCreatedAtAsc(
                             RegistrationStatus.APPROVED,
                             Role.SENIOR_SELLER,
-                            tmUserId
+                            tmOptional.get().getId()
                     );
             if (senior.isPresent()) {
                 return senior;
@@ -559,18 +569,7 @@ public class SubstitutionService {
         if (location == null) {
             return Optional.empty();
         }
-        Long tmUserId = location.getTmUserId();
-        if (tmUserId != null) {
-            return userAccountRepository.findFirstByStatusAndRoleAndLocation_TmUserIdOrderByCreatedAtAsc(
-                    RegistrationStatus.APPROVED,
-                    Role.TM,
-                    tmUserId
-            );
-        }
-        return userAccountRepository.findFirstByStatusAndRoleOrderByCreatedAtAsc(
-                RegistrationStatus.APPROVED,
-                Role.TM
-        );
+        return userAccountRepository.findActiveTmByManagedLocation(location.getId());
     }
 
     @Transactional(readOnly = true)

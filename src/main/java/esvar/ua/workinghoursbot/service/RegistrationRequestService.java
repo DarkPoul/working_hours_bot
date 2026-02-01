@@ -19,15 +19,15 @@ public class RegistrationRequestService {
     private final UserAccountRepository userAccountRepository;
     private final AuditService auditService;
 
-    public List<UserAccount> findPendingByTmUserId(Long tmUserId) {
-        return userAccountRepository.findByStatusAndLocation_TmUserIdOrderByCreatedAtAsc(
+    public List<UserAccount> findPendingByTmId(UUID tmUserId) {
+        return userAccountRepository.findByStatusAndLocationManagedByTmOrderByCreatedAtAsc(
                 RegistrationStatus.PENDING_APPROVAL,
                 tmUserId
         );
     }
 
-    public Optional<UserAccount> findPendingByIdAndTmUserId(UUID id, Long tmUserId) {
-        return userAccountRepository.findByIdAndStatusAndLocation_TmUserId(
+    public Optional<UserAccount> findPendingByIdAndTmId(UUID id, UUID tmUserId) {
+        return userAccountRepository.findByIdAndStatusAndLocationManagedByTm(
                 id,
                 RegistrationStatus.PENDING_APPROVAL,
                 tmUserId

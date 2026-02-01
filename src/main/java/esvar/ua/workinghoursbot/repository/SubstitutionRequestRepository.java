@@ -9,6 +9,8 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
 
@@ -20,12 +22,23 @@ public interface SubstitutionRequestRepository extends JpaRepository<Substitutio
             Collection<SubstitutionRequestStatus> statuses
     );
 
-    List<SubstitutionRequest> findByStatusInAndLocation_TmUserIdOrderByRequestDateAsc(
-            Collection<SubstitutionRequestStatus> statuses,
-            Long tmUserId
+    List<SubstitutionRequest> findByStatusInOrderByRequestDateAsc(Collection<SubstitutionRequestStatus> statuses);
+
+    @Query("""
+            select r from SubstitutionRequest r
+            where r.status in :statuses
+            and r.location in (select l from UserAccount tm join tm.managedLocations l where tm.id = :tmId)
+            order by r.requestDate asc
+            """)
+    List<SubstitutionRequest> findByStatusInAndLocationManagedByTmOrderByRequestDateAsc(
+            @Param("statuses") Collection<SubstitutionRequestStatus> statuses,
+            @Param("tmId") UUID tmId
     );
 
-    List<SubstitutionRequest> findByStatusInOrderByRequestDateAsc(Collection<SubstitutionRequestStatus> statuses);
+    List<SubstitutionRequest> findByStatusInAndLocation_IdOrderByRequestDateAsc(
+            Collection<SubstitutionRequestStatus> statuses,
+            UUID locationId
+    );
 
     List<SubstitutionRequest> findByStatusAndLocation_IdAndRequestDateBetween(
             SubstitutionRequestStatus status,
