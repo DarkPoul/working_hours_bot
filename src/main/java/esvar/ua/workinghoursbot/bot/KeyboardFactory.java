@@ -28,13 +28,12 @@ public final class KeyboardFactory {
 
     public static ReplyKeyboardMarkup roleMenuKeyboard() {
         KeyboardRow row1 = singleButtonRow("Продавець");
-        KeyboardRow row2 = singleButtonRow("Старший продавець");
-        KeyboardRow row3 = singleButtonRow("ТМ");
+        KeyboardRow row2 = singleButtonRow("ТМ");
         KeyboardRow navRow = new KeyboardRow();
         navRow.add(new KeyboardButton("⬅️ Назад"));
         navRow.add(new KeyboardButton("🔁 Почати спочатку"));
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3, navRow));
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, navRow));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;

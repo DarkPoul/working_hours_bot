@@ -326,9 +326,6 @@ public class RegistrationService {
         if ("Продавець".equalsIgnoreCase(roleText)) {
             return Role.SELLER;
         }
-        if ("Старший продавець".equalsIgnoreCase(roleText)) {
-            return Role.SENIOR_SELLER;
-        }
         if ("ТМ".equalsIgnoreCase(roleText)) {
             return Role.TM;
         }
