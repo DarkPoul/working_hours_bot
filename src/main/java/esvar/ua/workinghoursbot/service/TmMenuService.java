@@ -40,8 +40,6 @@ public class TmMenuService {
     private static final String BUTTON_DISABLE_SCHEDULE_ALL = "Заборонити для всіх локацій";
     private static final String TM_SCHEDULE_CALLBACK = "TM_SCHED:";
     private static final String LOCATION_SEPARATOR = " | ";
-    private static final int LOCATION_NAME_MIN_LENGTH = 2;
-    private static final int LOCATION_NAME_MAX_LENGTH = 128;
 
     private final RegistrationRequestService registrationRequestService;
     private final LocationService locationService;
@@ -203,13 +201,16 @@ public class TmMenuService {
         if (BUTTON_BACK.equalsIgnoreCase(text)) {
             return showLocationsMenu(session, chatId);
         }
-        String locationName = normalizeLocationName(text);
-        if (locationName == null) {
-            SendMessage message = buildMessage(chatId, "Вкажіть назву локації (2-128 символів).");
-            message.setReplyMarkup(KeyboardFactory.backKeyboard());
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveAvailableForTm(tm.getId()))
+                .orElseGet(List::of);
+        Optional<Location> location = findLocationByCode(locations, text);
+        if (location.isEmpty()) {
+            SendMessage message = buildMessage(chatId, "Оберіть локацію зі списку.");
+            message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
             return BotResponse.of(message);
         }
-        session.setDraftLocationName(locationName);
+        session.setSelectedLocationId(location.get().getId());
         session.setState(TmState.LOCATION_ADD_CONFIRM);
         tmSessionService.save(session);
         return showLocationAddConfirm(session, chatId);
@@ -223,15 +224,17 @@ public class TmMenuService {
             return showLocationAddConfirm(session, chatId);
         }
 
-        String locationName = normalizeLocationName(session.getDraftLocationName());
+        UUID selectedLocationId = session.getSelectedLocationId();
         Optional<UserAccount> tmAccount = resolveTmAccount(session.getTelegramUserId());
-        if (locationName == null) {
+        if (selectedLocationId == null || tmAccount.isEmpty()) {
             return showLocationAddInput(session, chatId);
         }
-        if (tmAccount.isPresent()) {
-            Location location = locationService.createLocation(tmAccount.get().getTelegramUserId(), locationName);
-            userAccountService.addManagedLocation(tmAccount.get(), location);
-        }
+        locationService.findActiveAvailableForTm(tmAccount.get().getId()).stream()
+                .filter(location -> selectedLocationId.equals(location.getId()))
+                .findFirst()
+                .ifPresent(location -> userAccountService.addManagedLocation(tmAccount.get(), location));
+
+        session.setSelectedLocationId(null);
         session.setDraftLocationName(null);
         session.setState(TmState.LOCATIONS_MENU);
         tmSessionService.save(session);
@@ -373,19 +376,38 @@ public class TmMenuService {
         session.setDraftLocationName(null);
         tmSessionService.save(session);
 
-        SendMessage message = buildMessage(chatId, "Введіть назву нової локації:");
-        message.setReplyMarkup(KeyboardFactory.backKeyboard());
+        List<Location> locations = resolveTmAccount(session.getTelegramUserId())
+                .map(tm -> locationService.findActiveAvailableForTm(tm.getId()))
+                .orElseGet(List::of);
+        if (locations.isEmpty()) {
+            SendMessage message = buildMessage(chatId, "Немає доступних локацій для додавання.");
+            message.setReplyMarkup(KeyboardFactory.backKeyboard());
+            return BotResponse.of(message);
+        }
+
+        SendMessage message = buildMessage(chatId, "Оберіть локацію для додавання:");
+        message.setReplyMarkup(KeyboardFactory.listWithBackKeyboard(formatLocationButtons(locations)));
         return BotResponse.of(message);
     }
 
     private BotResponse showLocationAddConfirm(TmSession session, Long chatId) {
-        String name = Optional.ofNullable(normalizeLocationName(session.getDraftLocationName()))
-                .orElse("-");
+        UUID selectedLocationId = session.getSelectedLocationId();
+        if (selectedLocationId == null) {
+            return showLocationAddInput(session, chatId);
+        }
+        Optional<Location> selectedLocation = resolveTmAccount(session.getTelegramUserId())
+                .flatMap(tm -> locationService.findActiveAvailableForTm(tm.getId()).stream()
+                        .filter(location -> selectedLocationId.equals(location.getId()))
+                        .findFirst());
+        if (selectedLocation.isEmpty()) {
+            return showLocationAddInput(session, chatId);
+        }
+
         String text = """
                 Додавання локації під контроль
                 Назва: %s
                 Ви впевнені що хочете додати?
-                """.formatted(name);
+                """.formatted(selectedLocation.get().getName());
         SendMessage message = buildMessage(chatId, text.trim());
         message.setReplyMarkup(KeyboardFactory.yesBackKeyboard());
         return BotResponse.of(message);
@@ -663,17 +685,6 @@ public class TmMenuService {
             return null;
         }
         return text.substring(index + LOCATION_SEPARATOR.length()).trim();
-    }
-
-    private static String normalizeLocationName(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String trimmed = raw.trim().replaceAll("\\s+", " ");
-        if (trimmed.length() < LOCATION_NAME_MIN_LENGTH || trimmed.length() > LOCATION_NAME_MAX_LENGTH) {
-            return null;
-        }
-        return trimmed;
     }
 
     private static UUID parseUuid(String raw) {
