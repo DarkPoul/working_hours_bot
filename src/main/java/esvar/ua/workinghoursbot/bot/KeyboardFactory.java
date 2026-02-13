@@ -105,9 +105,8 @@ public final class KeyboardFactory {
         KeyboardRow row1 = singleButtonRow("Заявки");
         KeyboardRow row2 = singleButtonRow("Локації");
         KeyboardRow row3 = singleButtonRow("Графік локацій");
-        KeyboardRow row4 = singleButtonRow("📍 Моя локація");
 
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3, row4));
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup(List.of(row1, row2, row3));
         markup.setResizeKeyboard(true);
         markup.setOneTimeKeyboard(false);
         return markup;
