@@ -31,6 +31,9 @@ public class UserAccount {
     @Column(name = "last_name", nullable = false, length = 64)
     private String lastName;
 
+    @Column(name = "full_name", length = 128)
+    private String fullName;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false, length = 32)
     private Role role;
@@ -38,6 +41,10 @@ public class UserAccount {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "location_id")
     private Location location;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pending_location_id")
+    private Location pendingLocation;
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
@@ -50,6 +57,26 @@ public class UserAccount {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)
     private RegistrationStatus status;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "seller_status", length = 32)
+    private SellerStatus sellerStatus;
+
+    @Column(name = "active", nullable = false)
+    private boolean active = true;
+
+    @Column(name = "blocked", nullable = false)
+    private boolean blocked;
+
+    @Column(name = "tm_pin_attempts", nullable = false)
+    private int tmPinAttempts;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "state", length = 64)
+    private UserState state;
+
+    @Column(name = "state_payload", length = 1000)
+    private String statePayload;
 
     @Column(name = "created_at", nullable = false, length = 32)
     private Instant createdAt;

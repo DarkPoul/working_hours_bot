@@ -29,3 +29,11 @@ tm:
 logging:
   level:
     esvar.ua.workinghoursbot: INFO
+
+
+domain:
+  tm:
+    pin: ${TM_PIN:2525}
+    max-attempts: ${TM_MAX_ATTEMPTS:3}
+  schedule:
+    max-sellers-per-location: ${SCHEDULE_MAX_SELLERS_PER_LOCATION:2}

@@ -156,4 +156,8 @@ public interface UserAccountRepository extends JpaRepository<UserAccount, UUID> 
             @Param("role") Role role,
             @Param("tmId") UUID tmId
     );
+
+    long countByRoleAndSellerStatusAndLocation_Id(Role role, esvar.ua.workinghoursbot.domain.SellerStatus sellerStatus, UUID locationId);
+
+    java.util.List<UserAccount> findByRoleAndSellerStatusAndLocation_Id(Role role, esvar.ua.workinghoursbot.domain.SellerStatus sellerStatus, UUID locationId);
 }

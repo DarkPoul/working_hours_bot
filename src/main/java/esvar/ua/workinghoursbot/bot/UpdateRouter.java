@@ -13,6 +13,7 @@ import esvar.ua.workinghoursbot.service.SubstitutionInteractionHandler;
 import esvar.ua.workinghoursbot.service.SeniorSellerMenuService;
 import esvar.ua.workinghoursbot.service.TmMenuService;
 import esvar.ua.workinghoursbot.service.UserAccountService;
+import esvar.ua.workinghoursbot.service.AccessGuardService;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +38,7 @@ public class UpdateRouter {
     private final ShiftConfirmationService shiftConfirmationService;
     private final LocationInfoService locationInfoService;
     private final AuditService auditService;
+    private final AccessGuardService accessGuardService;
 
     public BotResponse route(Update update) {
         if (update == null) {
@@ -127,6 +129,10 @@ public class UpdateRouter {
 
     private BotResponse handleText(Long telegramUserId, Long chatId, String text) {
         UserAccount account = userAccountService.findByTelegramUserId(telegramUserId).orElse(null);
+        BotResponse guardResponse = accessGuardService.check(account, chatId, text);
+        if (guardResponse != null) {
+            return guardResponse;
+        }
         if (account != null && account.getStatus() == RegistrationStatus.APPROVED && account.getRole() != Role.TM) {
             BotResponse confirmationResponse = shiftConfirmationService.handleResponse(telegramUserId, chatId, text);
             if (!confirmationResponse.actions().isEmpty()) {

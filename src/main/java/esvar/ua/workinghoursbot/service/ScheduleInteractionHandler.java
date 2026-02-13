@@ -48,6 +48,7 @@ public class ScheduleInteractionHandler {
     private final TmScheduleEditGateService scheduleEditGateService;
     private final MainMenuService mainMenuService;
     private final AuditService auditService;
+    private final ScheduleAccessService scheduleAccessService;
 
     public BotResponse handleMessage(Long telegramUserId, Long chatId, String text) {
         if (text == null || text.isBlank()) {
@@ -75,7 +76,7 @@ public class ScheduleInteractionHandler {
         }
 
         if (COMMAND_EDIT.equalsIgnoreCase(text)) {
-            if (!scheduleEditGateService.isScheduleEditEnabled(account)) {
+            if (!scheduleAccessService.canSellerEdit(account) || !scheduleEditGateService.isScheduleEditEnabled(account)) {
                 SendMessage response = simpleMessage(chatId, "Внесення графіку тимчасово закрите ТМ.");
                 response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
                 return BotResponse.of(response);
@@ -116,7 +117,7 @@ public class ScheduleInteractionHandler {
             return BotResponse.of(simpleMessage(chatId, "Спочатку оберіть локацію."));
         }
 
-        if (!scheduleEditGateService.isScheduleEditEnabled(account)) {
+        if (!scheduleAccessService.canSellerEdit(account) || !scheduleEditGateService.isScheduleEditEnabled(account)) {
             SendMessage response = simpleMessage(chatId, "Внесення графіку тимчасово закрите ТМ.");
             response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
             return BotResponse.of(response);
@@ -191,7 +192,7 @@ public class ScheduleInteractionHandler {
         if (location == null) {
             return BotResponse.of(simpleMessage(chatId, "Спочатку оберіть локацію."));
         }
-        if (!scheduleEditGateService.isScheduleEditEnabled(account)) {
+        if (!scheduleAccessService.canSellerEdit(account) || !scheduleEditGateService.isScheduleEditEnabled(account)) {
             SendMessage response = simpleMessage(chatId, "Внесення графіку тимчасово закрите ТМ.");
             response.setReplyMarkup(mainMenuService.mainMenuKeyboard(account));
             return BotResponse.of(response);
