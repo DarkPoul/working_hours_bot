@@ -23,4 +23,20 @@ class KeyboardFactoryTest {
                 "🔁 Почати спочатку"
         ), labels);
     }
+
+    @Test
+    void tmMainMenuDoesNotContainMyLocationButton() {
+        var markup = KeyboardFactory.tmMainMenuKeyboard();
+
+        List<String> labels = markup.getKeyboard().stream()
+                .flatMap(row -> row.stream().map(button -> button.getText()))
+                .collect(Collectors.toList());
+
+        assertEquals(List.of(
+                "Заявки",
+                "Локації",
+                "Графік локацій"
+        ), labels);
+    }
+
 }

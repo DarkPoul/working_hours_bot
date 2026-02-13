@@ -3,6 +3,7 @@ package esvar.ua.workinghoursbot.service;
 import esvar.ua.workinghoursbot.domain.AuditEventType;
 import esvar.ua.workinghoursbot.domain.RegistrationStatus;
 import esvar.ua.workinghoursbot.domain.Role;
+import esvar.ua.workinghoursbot.domain.SellerStatus;
 import esvar.ua.workinghoursbot.domain.UserAccount;
 import esvar.ua.workinghoursbot.repository.UserAccountRepository;
 import java.time.Instant;
@@ -88,6 +89,9 @@ public class RegistrationRequestService {
         }
 
         request.setStatus(RegistrationStatus.APPROVED);
+        if (request.getRole() == Role.SELLER) {
+            request.setSellerStatus(SellerStatus.APPROVED);
+        }
         request.setApprovedByTelegramUserId(approvedByTelegramUserId);
         request.setApprovedAt(Instant.now());
         UserAccount saved = userAccountRepository.save(request);
@@ -108,6 +112,9 @@ public class RegistrationRequestService {
     @Transactional
     public UserAccount reject(UserAccount request) {
         request.setStatus(RegistrationStatus.REJECTED);
+        if (request.getRole() == Role.SELLER) {
+            request.setSellerStatus(SellerStatus.REJECTED);
+        }
         return userAccountRepository.save(request);
     }
 
@@ -118,6 +125,9 @@ public class RegistrationRequestService {
             String message
     ) {
         request.setStatus(status);
+        if (request.getRole() == Role.SELLER && status != RegistrationStatus.APPROVED) {
+            request.setSellerStatus(SellerStatus.REJECTED);
+        }
         request.setApprovedByTelegramUserId(approvedByTelegramUserId);
         request.setApprovedAt(Instant.now());
         UserAccount saved = userAccountRepository.save(request);
