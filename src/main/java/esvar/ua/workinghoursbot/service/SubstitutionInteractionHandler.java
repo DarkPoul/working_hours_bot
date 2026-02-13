@@ -92,7 +92,7 @@ public class SubstitutionInteractionHandler {
                 return BotResponse.empty();
             }
             UserAccount account = accountOptional.get();
-            if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() != Role.SENIOR_SELLER) {
+            if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() != Role.TM) {
                 return BotResponse.empty();
             }
             ActiveRequestsView view = buildActiveRequestsView(account, 0);
@@ -317,7 +317,7 @@ public class SubstitutionInteractionHandler {
         actions.add(editSellerMenu(
                 telegramUserId,
                 callbackQuery.getMessage(),
-                "✅ Запит на підміну створено. Очікуйте рішення старшого продавця.",
+                "✅ Запит на підміну створено. Очікуйте рішення ТМ.",
                 keyboard
         ));
         actions.addAll(substitutionNotificationService.notifySeniorAboutRequest(request));
@@ -346,13 +346,13 @@ public class SubstitutionInteractionHandler {
 
     private BotResponse handleSeniorTake(CallbackQuery callbackQuery) {
         UUID requestId = CallbackIdEncoder.decode(callbackQuery.getData().substring(CB_SENIOR_TAKE.length()));
-        UserAccount senior = requireSenior(callbackQuery);
-        SubstitutionRequest request = substitutionService.approveBySenior(requestId, senior.getTelegramUserId());
-        SubstitutionRequest saved = substitutionService.submitToTmApproval(request.getId(), senior.getId());
+        UserAccount tm = requireTm(callbackQuery);
+        SubstitutionRequest request = substitutionService.approveBySenior(requestId, tm.getTelegramUserId());
+        SubstitutionRequest approved = substitutionService.tmApprove(request.getId(), tm.getTelegramUserId());
 
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        actions.add(editMessage(callbackQuery.getMessage(), "✅ Запит відправлено на підтвердження ТМ.", null));
-        actions.addAll(notifyTmApproval(saved));
+        actions.add(editMessage(callbackQuery.getMessage(), "✅ Підміну підтверджено.", null));
+        actions.addAll(notifyRequesterAndSeniors(approved));
         return new BotResponse(actions);
     }
 
@@ -654,7 +654,7 @@ public class SubstitutionInteractionHandler {
     }
 
     private ActiveRequestsView buildActiveRequestsView(UserAccount senior, int page) {
-        List<SubstitutionRequest> requests = substitutionService.listActiveRequestsForSenior(senior);
+        List<SubstitutionRequest> requests = substitutionService.listActiveRequestsForTm(senior);
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         String text = "📌 Активні запити на підміну: " + requests.size();
         if (requests.isEmpty()) {
@@ -981,12 +981,7 @@ public class SubstitutionInteractionHandler {
     }
 
     private UserAccount requireSenior(CallbackQuery callbackQuery) {
-        UserAccount account = userAccountService.findByTelegramUserId(callbackQuery.getFrom().getId())
-                .orElseThrow(() -> new IllegalStateException("Користувача не знайдено."));
-        if (account.getStatus() != RegistrationStatus.APPROVED || account.getRole() != Role.SENIOR_SELLER) {
-            throw new IllegalStateException("Недостатньо прав.");
-        }
-        return account;
+        return requireTm(callbackQuery);
     }
 
     private UserAccount requireTm(CallbackQuery callbackQuery) {

@@ -195,6 +195,12 @@ class SubstitutionServiceTest {
 
     @Test
     void findSeniorReturnsEmptyWhenNoneFound() {
+        candidateRepository.deleteAll();
+        substitutionRequestRepository.deleteAll();
+        scheduleDayRepository.deleteAll();
+        userAccountRepository.deleteAll();
+        locationRepository.deleteAll();
+
         Location location = createLocation("L7", 888L);
 
         SubstitutionService.SeniorLookupResult result = substitutionService.findSeniorForRequestWithDiagnostics(
@@ -229,7 +235,7 @@ class SubstitutionServiceTest {
         assertThat(actions).hasSize(1);
         SendMessage message = (SendMessage) actions.getFirst();
         assertThat(message.getText())
-                .isEqualTo("⚠️ Немає старшого продавця для вашого ТМ. Зверніться до адміністратора.");
+                .isEqualTo("⚠️ Не знайдено ТМ для вашої локації. Зверніться до адміністратора.");
     }
 
     private Location createLocation(String name) {

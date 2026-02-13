@@ -35,41 +35,21 @@ public class SubstitutionNotificationService {
 
     public List<BotApiMethod<?>> notifySeniorAboutRequest(SubstitutionRequest request) {
         List<BotApiMethod<?>> actions = new ArrayList<>();
-        Long tmTelegramUserId = request.getLocation() != null ? request.getLocation().getTmUserId() : null;
-        log.info("Searching senior for substitution request. requestId={}, locationId={}, tmTelegramUserId={}, criteria=locationId+role+status",
-                request.getId(),
-                request.getLocation() != null ? request.getLocation().getId() : null,
-                tmTelegramUserId);
-        SubstitutionService.SeniorLookupResult lookup = substitutionService.findSeniorForRequestWithDiagnostics(
-                request.getLocation(),
-                tmTelegramUserId
-        );
-        log.info("Senior search result. requestId={}, locationId={}, locationMatches={}, tmApproverMatches={}, globalMatches={}, stage={}",
-                request.getId(),
-                request.getLocation() != null ? request.getLocation().getId() : null,
-                lookup.locationMatches(),
-                lookup.tmApproverMatches(),
-                lookup.globalMatches(),
-                lookup.stage());
-        if (lookup.senior().isPresent()) {
-            UserAccount senior = lookup.senior().get();
+        UserAccount tm = substitutionService.findTmForRequest(request.getLocation()).orElse(null);
+        if (tm != null) {
             SendMessage message = notificationService.sendMessage(
-                    senior.getTelegramChatId(),
+                    tm.getTelegramChatId(),
                     buildSeniorRequestText(request),
                     buildSeniorInlineKeyboard(request)
             );
             actions.add(message);
         } else {
-            log.warn("No seniors found for substitution request. requestId={}, locationId={}, tmTelegramUserId={}, locationMatches={}, tmApproverMatches={}, globalMatches={}",
+            log.warn("TM not found for substitution request. requestId={}, locationId={}",
                     request.getId(),
-                    request.getLocation() != null ? request.getLocation().getId() : null,
-                    tmTelegramUserId,
-                    lookup.locationMatches(),
-                    lookup.tmApproverMatches(),
-                    lookup.globalMatches());
+                    request.getLocation() != null ? request.getLocation().getId() : null);
             actions.add(notificationService.sendMessage(
                     request.getRequester().getTelegramChatId(),
-                    "⚠️ Немає старшого продавця для вашого ТМ. Зверніться до адміністратора.",
+                    "⚠️ Не знайдено ТМ для вашої локації. Зверніться до адміністратора.",
                     null
             ));
         }

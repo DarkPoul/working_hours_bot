@@ -377,6 +377,20 @@ public class SubstitutionService {
         );
     }
 
+
+    @Transactional(readOnly = true)
+    public List<SubstitutionRequest> listActiveRequestsForTm(UserAccount tm) {
+        List<SubstitutionRequestStatus> statuses = List.of(
+                SubstitutionRequestStatus.NEW,
+                SubstitutionRequestStatus.IN_PROGRESS,
+                SubstitutionRequestStatus.WAITING_TM_APPROVAL
+        );
+        return substitutionRequestRepository.findByStatusInAndLocationManagedByTmOrderByRequestDateAsc(
+                statuses,
+                tm.getId()
+        );
+    }
+
     @Transactional
     public SubstitutionRequest submitToTmApproval(UUID requestId, UUID actorUserId) {
         SubstitutionRequest request = substitutionRequestRepository.findById(requestId)
