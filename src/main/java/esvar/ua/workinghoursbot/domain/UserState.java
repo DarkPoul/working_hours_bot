@@ -1,0 +1,12 @@
+package esvar.ua.workinghoursbot.domain;
+
+public enum UserState {
+    NONE,
+    REGISTRATION_ROLE,
+    REGISTRATION_TM_PIN,
+    REGISTRATION_TM_LOCATIONS,
+    REGISTRATION_SELLER_LOCATION,
+    SELLER_PENDING_MENU,
+    TM_MAIN_MENU,
+    SELLER_MAIN_MENU
+}
